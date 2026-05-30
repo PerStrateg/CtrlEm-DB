@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CtrlEm DB dev</title>
+    <style>
+      html,
+      body,
+      iframe {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      iframe {
+        display: block;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe id="ctrlem-dev-page" src="/test-webpage/test2.htm"></iframe>
+    <script type="module">
+      const frame = document.getElementById('ctrlem-dev-page');
+
+      frame.addEventListener('load', () => {
+        const frameDocument = frame.contentDocument;
+        if (!frameDocument || frameDocument.getElementById('ctrlem-db-dev-entry')) return;
+
+        const script = frameDocument.createElement('script');
+        script.id = 'ctrlem-db-dev-entry';
+        script.type = 'module';
+        script.src = '/src/dev-userscript.ts';
+        frameDocument.head.appendChild(script);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,62 @@
+// Global notification handler - SSE only for chat page
+(() => {
+  if (window.__notificationsInitialized) return;
+  window.__notificationsInitialized = true;
+
+  const api = window.api || window.CtrlEm?.api || function(url, options = {}) {
+    return fetch(url, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options
+    }).then(async res => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Request failed');
+      }
+      return res.json();
+    });
+  };
+
+  // Badge elements
+  const friendRequestBadge = document.getElementById('friend-request-badge');
+  const unreadMessagesBadge = document.getElementById('unread-messages-badge');
+  const warningBadge = document.getElementById('warning-badge');
+  const noticeBadge = document.getElementById('notice-badge');
+
+  // Update badge display
+  function updateBadge(element, count) {
+    if (!element) return;
+    if (count > 0) {
+      element.textContent = count > 99 ? '99+' : count;
+      element.style.display = 'flex';
+    } else {
+      element.style.display = 'none';
+    }
+  }
+
+  // Load notification counts
+  async function loadNotificationCounts() {
+    try {
+      const data = await api('/api/notifications/counts');
+      updateBadge(friendRequestBadge, data.friendRequests);
+      updateBadge(unreadMessagesBadge, data.unreadMessages);
+      updateBadge(warningBadge, data.warnings);
+      updateBadge(noticeBadge, data.notices);
+    } catch (err) {
+      // Silently fail
+    }
+  }
+
+  // Load counts on page load
+  loadNotificationCounts();
+
+  // Refresh counts when page becomes visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      loadNotificationCounts();
+    }
+  });
+
+  // Export for other pages to use
+  window.refreshNotificationCounts = loadNotificationCounts;
+})();
