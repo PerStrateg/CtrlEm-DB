@@ -7,8 +7,8 @@ export default defineConfig({
       entry: 'src/main.ts',
       userscript: {
         name: 'CtrlEm DB by Strateg',
-        namespace: 'https://ctrlem.local/userscripts',
-        version: '1.1.0',
+        namespace: 'https://discord.com/channels/1465036592262676601/1505167683107160156',
+        version: '1.3.0',
         description: 'Adds DB shortcuts and a DB manager to CtrlEm command pages.',
         match: ['https://ctrlem.com/*'],
         grant: ['GM_addStyle', 'GM_getValue', 'GM_setValue', 'GM_xmlhttpRequest', 'GM_download', 'GM_openInTab'],
@@ -24,6 +24,7 @@ export default defineConfig({
           '*',
         ],
         'run-at': 'document-idle',
+        license: 'MIT'
       },
       build: {
         fileName: 'ctrlem-db.user.js',
