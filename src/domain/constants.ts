@@ -15,7 +15,7 @@ export const USER_CONFIG = Object.freeze({
     intervalMinSeconds: 3,
     intervalMaxSeconds: 3600,
     minimumRequestIntervalDefaultSeconds: 3,
-    minimumRequestIntervalMinSeconds: 1,
+    minimumRequestIntervalMinSeconds: 3,
     minimumRequestIntervalMaxSeconds: 60,
     queueLockTtlMs: 1200,
     heartbeatMs: 2000,

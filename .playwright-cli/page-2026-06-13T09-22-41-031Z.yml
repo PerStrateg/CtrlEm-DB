@@ -1,0 +1,231 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]:
+      - link "CtrlEm" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - link "Discord" [ref=e5] [cursor=pointer]:
+        - /url: https://discord.gg/ctrlem
+        - img [ref=e6]
+        - generic [ref=e8]: Discord
+      - link "Donate" [ref=e9] [cursor=pointer]:
+        - /url: https://throne.com/strawberryemmaz
+        - img [ref=e10]
+        - generic [ref=e12]: Donate
+    - generic [ref=e13]:
+      - link "Home" [ref=e14] [cursor=pointer]:
+        - /url: /
+      - link "Users" [ref=e15] [cursor=pointer]:
+        - /url: /users
+      - link "Groups" [ref=e16] [cursor=pointer]:
+        - /url: /groups
+      - link "Friends" [ref=e17] [cursor=pointer]:
+        - /url: /friends
+        - img [ref=e18]
+      - link "Messages" [ref=e23] [cursor=pointer]:
+        - /url: /chat
+        - img [ref=e24]
+      - link "Dashboard" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard
+      - generic [ref=e27]:
+        - img "Avatar" [ref=e28]
+        - generic [ref=e29]: strateg94
+        - link "Logout" [ref=e30] [cursor=pointer]:
+          - /url: /auth/logout
+  - main [ref=e31]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - img "Avatar" [ref=e35]
+        - generic [ref=e36]:
+          - heading "strateg94 ✓" [level=1] [ref=e37]:
+            - text: strateg94
+            - generic "Verified" [ref=e38]: ✓
+          - generic [ref=e39]: Online
+          - generic [ref=e40]:
+            - text: "Control Code:"
+            - code [ref=e41]: KPD0M
+          - generic [ref=e42]:
+            - generic [ref=e43]: 5,238
+            - generic [ref=e44]: commands sent
+      - generic [ref=e45]:
+        - button "Windows" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+          - generic [ref=e49]: Windows
+        - button "Android" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+          - generic [ref=e54]: Android
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - heading "Commands" [level=2] [ref=e60]
+              - paragraph [ref=e61]: Click a command to open options.
+            - button "Open DB manager" [ref=e62] [cursor=pointer]: DB
+          - generic [ref=e63]:
+            - button "Screenshot ▾" [ref=e65] [cursor=pointer]:
+              - generic [ref=e66]: Screenshot
+              - generic [ref=e67]: ▾
+            - button "Lock Input ▾" [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]: Lock Input
+              - generic [ref=e71]: ▾
+            - button "Blank Screen ▾" [ref=e73] [cursor=pointer]:
+              - generic [ref=e74]: Blank Screen
+              - generic [ref=e75]: ▾
+            - button "Open Page ▾" [ref=e77] [cursor=pointer]:
+              - generic [ref=e78]: Open Page
+              - generic [ref=e79]: ▾
+            - generic [ref=e80]:
+              - button "Popup Image ▾" [ref=e81] [cursor=pointer]:
+                - generic [ref=e82]: Popup Image
+                - generic [ref=e83]: ▾
+              - text: Show previews
+            - generic [ref=e84]:
+              - button "Change Wallpaper ▾" [ref=e85] [cursor=pointer]:
+                - generic [ref=e86]: Change Wallpaper
+                - generic [ref=e87]: ▾
+              - text: Show previews
+            - button "Send Message ▾" [ref=e89] [cursor=pointer]:
+              - generic [ref=e90]: Send Message
+              - generic [ref=e91]: ▾
+            - button "Popup Sound ▾" [ref=e93] [cursor=pointer]:
+              - generic [ref=e94]: Popup Sound
+              - generic [ref=e95]: ▾
+            - button "Send or Delete ▾" [ref=e97] [cursor=pointer]:
+              - generic [ref=e98]: Send or Delete
+              - generic [ref=e99]: ▾
+            - button "Video Overlay ▾" [ref=e101] [cursor=pointer]:
+              - generic [ref=e102]: Video Overlay
+              - generic [ref=e103]: ▾
+            - button "Write For Me ▾" [ref=e105] [cursor=pointer]:
+              - generic [ref=e106]: Write For Me
+              - generic [ref=e107]: ▾
+            - button "Session ▾" [ref=e109] [cursor=pointer]:
+              - generic [ref=e110]: Session
+              - generic [ref=e111]: ▾
+        - generic [ref=e112]:
+          - generic [ref=e113]:
+            - generic [ref=e114]:
+              - heading "Results" [level=2] [ref=e115]
+              - paragraph [ref=e116]: Responses, screenshots, webcam captures, and status updates.
+            - generic [ref=e117]:
+              - button "Refresh" [ref=e118] [cursor=pointer]
+              - generic "Toggle auto-refresh" [ref=e119]:
+                - checkbox [checked]
+              - generic [ref=e121]: Auto
+          - generic [ref=e122]:
+            - generic [ref=e123]:
+              - generic [ref=e124]:
+                - generic [ref=e125]: sendMessage
+                - generic [ref=e126]: 7m ago
+              - generic [ref=e127]: "Message: Just the person I wanted to see... naked."
+            - generic [ref=e128]:
+              - generic [ref=e129]:
+                - generic [ref=e130]: sendMessage
+                - generic [ref=e131]: 7m ago
+              - generic [ref=e132]: "Message: Fancy seeing you here... or should I say under me?"
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - generic [ref=e135]: sendMessage
+                - generic [ref=e136]: 7m ago
+              - generic [ref=e137]: "Message: Hey there, sexy. Ready to play?"
+            - generic [ref=e138]:
+              - generic [ref=e139]:
+                - generic [ref=e140]: sendMessage
+                - generic [ref=e141]: 8m ago
+              - generic [ref=e142]: "Message: Hey there, sexy. Ready to play?"
+            - generic [ref=e143]:
+              - generic [ref=e144]:
+                - generic [ref=e145]: sendMessage
+                - generic [ref=e146]: 8m ago
+              - generic [ref=e147]: "Message: Hey there, sexy. Ready to play?"
+            - generic [ref=e148]:
+              - generic [ref=e149]:
+                - generic [ref=e150]: sendMessage
+                - generic [ref=e151]: 20m ago
+              - generic [ref=e152]: "Message: Just the person I wanted to see... naked."
+            - generic [ref=e153]:
+              - generic [ref=e154]:
+                - generic [ref=e155]: sendMessage
+                - generic [ref=e156]: 20m ago
+              - generic [ref=e157]: "Message: Hello darling, shall we skip the formalities?"
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - generic [ref=e160]: sendMessage
+                - generic [ref=e161]: 20m ago
+              - generic [ref=e162]: "Message: Fancy seeing you here... or should I say under me?"
+            - generic [ref=e163]:
+              - generic [ref=e164]:
+                - generic [ref=e165]: sendMessage
+                - generic [ref=e166]: 23m ago
+              - generic [ref=e167]: "Message: Fancy seeing you here... or should I say under me?"
+            - generic [ref=e168]:
+              - generic [ref=e169]:
+                - generic [ref=e170]: sendMessage
+                - generic [ref=e171]: 23m ago
+              - generic [ref=e172]: "Message: Hello, my favorite toy."
+            - generic [ref=e173]:
+              - generic [ref=e174]:
+                - generic [ref=e175]: sendMessage
+                - generic [ref=e176]: 24m ago
+              - generic [ref=e177]: "Message: Hey there, sexy. Ready to play?"
+            - generic [ref=e178]:
+              - generic [ref=e179]:
+                - generic [ref=e180]: sendMessage
+                - generic [ref=e181]: 24m ago
+              - generic [ref=e182]: "Message: Ready to be completely ruined today?"
+            - generic [ref=e183]:
+              - generic [ref=e184]:
+                - generic [ref=e185]: sendMessage
+                - generic [ref=e186]: 24m ago
+              - generic [ref=e187]: "Message: Just the person I wanted to see... naked."
+            - generic [ref=e188]:
+              - generic [ref=e189]:
+                - generic [ref=e190]: sendMessage
+                - generic [ref=e191]: 24m ago
+              - generic [ref=e192]: "Message: Hello darling, shall we skip the formalities?"
+            - generic [ref=e193]:
+              - generic [ref=e194]:
+                - generic [ref=e195]: sendMessage
+                - generic [ref=e196]: 24m ago
+              - generic [ref=e197]: "Message: Fancy seeing you here... or should I say under me?"
+            - generic [ref=e198]:
+              - generic [ref=e199]:
+                - generic [ref=e200]: sendMessage
+                - generic [ref=e201]: 24m ago
+              - generic [ref=e202]: "Message: Hey there, sexy. Ready to play?"
+            - generic [ref=e203]:
+              - generic [ref=e204]:
+                - generic [ref=e205]: sendMessage
+                - generic [ref=e206]: 33m ago
+              - generic [ref=e207]: "Message: Ready to be completely ruined today?"
+            - generic [ref=e208]:
+              - generic [ref=e209]:
+                - generic [ref=e210]: sendMessage
+                - generic [ref=e211]: 33m ago
+              - generic [ref=e212]: "Message: Fancy seeing you here... or should I say under me?"
+            - generic [ref=e213]:
+              - generic [ref=e214]:
+                - generic [ref=e215]: sendMessage
+                - generic [ref=e216]: 33m ago
+              - generic [ref=e217]: "Message: Just the person I wanted to see... naked."
+            - generic [ref=e218]:
+              - generic [ref=e219]:
+                - generic [ref=e220]: sendMessage
+                - generic [ref=e221]: 33m ago
+              - generic [ref=e222]: "Message: Hello darling, shall we skip the formalities?"
+          - generic [ref=e223]:
+            - button "Prev" [disabled] [ref=e224]
+            - generic [ref=e225]: Page 1 of 2
+            - button "Next" [ref=e226] [cursor=pointer]
+  - contentinfo [ref=e227]:
+    - generic [ref=e228]:
+      - generic [ref=e229]:
+        - link "FAQ" [ref=e230] [cursor=pointer]:
+          - /url: /faq
+        - link "Terms" [ref=e231] [cursor=pointer]:
+          - /url: /terms
+        - link "Privacy" [ref=e232] [cursor=pointer]:
+          - /url: /privacy
+      - generic [ref=e234]:
+        - generic [ref=e235]: Donation Goal
+        - generic [ref=e236]: $300 / $150
+    - generic [ref=e239]: © 2026 CtrlEm

@@ -15,3 +15,4 @@
 - Test only the target CtrlEm page unless the user says otherwise: `https://ctrlem.com/u/KPD0M`.
 - Before finishing code changes, run `npm run typecheck` and `npm run build`.
 - Do not edit generated `dist/` manually; rebuild it with `npm run build`.
+(Маленькая CLI-особенность: attach-команда принимает --extension, а последующие команды идут через уже созданную сессию --s=msedge.)
