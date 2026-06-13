@@ -532,13 +532,15 @@ export class CtrlEmDbApp {
       row.classList.remove('is-selected');
     });
     button.classList.add('is-selected');
-    this.updateCommandPickerUiState(button.dataset.command || '', {
-      categoryId: button.dataset.categoryId || list.dataset.categoryId || '',
-      categoryName: button.dataset.category || list.dataset.category || '',
-      value,
-      itemIndex: Number(button.dataset.index || -1),
-      scrollTop: rows?.scrollTop || 0,
-    });
+    if (options.persistUiState !== false) {
+      this.updateCommandPickerUiState(button.dataset.command || '', {
+        categoryId: button.dataset.categoryId || list.dataset.categoryId || '',
+        categoryName: button.dataset.category || list.dataset.category || '',
+        value,
+        itemIndex: Number(button.dataset.index || -1),
+        scrollTop: rows?.scrollTop || 0,
+      });
+    }
 
     log('info', 'Text item selected', {
       command: button.dataset.command,
@@ -656,13 +658,15 @@ export class CtrlEmDbApp {
       tile.classList.remove('is-selected');
     });
     button.classList.add('is-selected');
-    this.updateCommandPickerUiState(button.dataset.command || '', {
-      categoryId: button.dataset.categoryId || picker.dataset.categoryId || '',
-      categoryName: button.dataset.category || picker.dataset.category || '',
-      value: url,
-      itemIndex: Number(button.dataset.index || -1),
-      scrollTop: grid?.scrollTop || 0,
-    });
+    if (options.persistUiState !== false) {
+      this.updateCommandPickerUiState(button.dataset.command || '', {
+        categoryId: button.dataset.categoryId || picker.dataset.categoryId || '',
+        categoryName: button.dataset.category || picker.dataset.category || '',
+        value: url,
+        itemIndex: Number(button.dataset.index || -1),
+        scrollTop: grid?.scrollTop || 0,
+      });
+    }
 
     log('info', 'Media selected', {
       command: button.dataset.command,

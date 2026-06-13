@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CtrlEm DB by Strateg
 // @namespace    https://discord.com/channels/1465036592262676601/1505167683107160156
-// @version      1.4.0
+// @version      1.4.4
 // @description  Adds DB shortcuts and a DB manager to CtrlEm command pages.
 // @license      MIT
 // @match        https://ctrlem.com/*
@@ -29,7 +29,7 @@
 	var STORAGE_KEY = "ctrlemDbState.v1";
 	var UI_STORAGE_KEY = "ctrlemDbUiState.v1";
 	var UPLOADER_SETTINGS_STORAGE_KEY = "ctrlemDbUploaderSettings.v1";
-	var AUTO_SEND_QUEUE_STORAGE_KEY = "ctrlemDbAutoSendQueue.v1";
+	var AUTO_SEND_SESSION_STORAGE_KEY = "ctrlemDbAutoSendSession.v1";
 	var INPUT_CATEGORY_NAME = "Input";
 	var NO_PREVIEWS_MARKER = "- (no previews)";
 	var USER_CONFIG = Object.freeze({
@@ -1270,75 +1270,24 @@
 	}
 	var MANAGER_ID = "ctrlem-db-autosend-manager";
 	var TOAST_BOTTOM_PROPERTY = "--ctrlem-db-toast-bottom";
-	var LOCK_TTL_MS = USER_CONFIG.autoSend.queueLockTtlMs;
-	var HEARTBEAT_MS = USER_CONFIG.autoSend.heartbeatMs;
-	var HEARTBEAT_TIMEOUT_MS = USER_CONFIG.autoSend.heartbeatTimeoutMs;
 	var RUNNER_MS = USER_CONFIG.autoSend.runnerMs;
-	var SEND_FEEDBACK_TIMEOUT_MS = 8e3;
 	var INTERVAL_BUFFER_MS = 100;
-	var SEND_BUTTON_UNLOCK_MS = 500;
-	var MANUAL_SNAPSHOT_REUSE_MS = 5e3;
-	var QUEUE_NOTIFICATION_TTL_MS = 15e3;
-	var SEEN_NOTIFICATION_STORAGE_KEY = "ctrlemDbAutoSendSeenNotifications.v1";
-	var FINALIZE_RETRY_DELAYS_MS = [
-		100,
-		250,
-		500,
-		1e3,
-		1500,
-		2e3
-	];
-	var DIRECT_SIMPLE_COMMANDS = new Set([
-		"screenshot",
-		"webcamCapture",
-		"lockinput",
-		"screenBlank",
-		"sendOrDelete"
-	]);
-	var DIRECT_URL_COMMANDS = new Set([
-		"openPage",
-		"popupImage",
-		"changeWallpaper",
-		"discordWallpaper",
-		"popupSound",
-		"videoOverlay"
-	]);
-	var TASK_STATUS = Object.freeze({
-		PENDING: "pending",
-		SENDING: "sending"
-	});
 	var AutoSendController = class {
 		options;
 		states = new Map();
-		manualTasks = new Map();
-		recentManualSnapshots = new Map();
-		seenNotificationIds = new Set();
-		instanceId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+		receiverCooldowns = new Map();
+		restoredCursorKeys = new Set();
 		managerTimer = 0;
-		heartbeatTimer = 0;
 		runnerTimer = 0;
-		buttonUnlockTimer = 0;
-		activeSendTaskIdsByReceiver = new Map();
 		managerCollapsed = false;
+		sequence = 0;
 		constructor(options) {
 			this.options = options;
-			this.restoreSeenNotificationIds();
-			window.addEventListener("storage", (event) => {
-				if (event.key !== "ctrlemDbAutoSendQueue.v1") return;
-				this.applyStoredQueue(this.parseStoredQueue(event.newValue));
-			});
-			document.addEventListener("click", (event) => this.captureManualSend(event), true);
-			window.addEventListener("beforeunload", () => this.removeOwnedTasks("tab unloaded"));
-			this.startHeartbeat();
-			this.startButtonUnlocker();
+			document.addEventListener("click", (event) => this.captureNativeSend(event), true);
 			this.startRunner();
 		}
 		getCommandConfig(commandKey) {
 			return TEXT_COMMANDS[commandKey] || MEDIA_COMMANDS[commandKey] || ACTION_COMMANDS[commandKey] || null;
-		}
-		getIntervalMs() {
-			const seconds = clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
-			return this.getBufferedIntervalMs(seconds);
 		}
 		getIntervalSeconds() {
 			return clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
@@ -1351,9 +1300,6 @@
 		}
 		getBufferedMinimumRequestIntervalMs() {
 			return this.getMinimumRequestIntervalMs() + INTERVAL_BUFFER_MS;
-		}
-		getMinimumRequestIntervalSeconds() {
-			return clampMinimumRequestInterval(this.options.getState()?.minimumRequestIntervalSeconds);
 		}
 		cleanText(value) {
 			return String(value || "").replace(/\s+/g, " ").trim();
@@ -1376,13 +1322,6 @@
 			const path = window.location.pathname.replace(/\/+$/, "") || "/";
 			return `${window.location.origin}${path}`;
 		}
-		getPageUrl() {
-			return window.location.href;
-		}
-		getTargetDevice() {
-			const layout = document.getElementById("commands-layout");
-			return String(layout?.dataset?.activeDevice || "desktop").toUpperCase();
-		}
 		getReceiverKey(pageKey = this.getPageKey(), pageCode = this.getPageCode()) {
 			const normalizedPageCode = String(pageCode || "").trim();
 			if (normalizedPageCode) return `receiver:${normalizedPageCode.toUpperCase()}`;
@@ -1391,11 +1330,7 @@
 			const normalizedPageKey = String(pageKey || "").trim();
 			return normalizedPageKey ? `receiver-url:${normalizedPageKey}` : "receiver:current";
 		}
-		getTaskReceiverKey(task) {
-			return this.normalizeReceiverKey(task?.receiverKey || this.getReceiverKey(task?.pageKey, task?.pageCode));
-		}
-		getSendType(config, kind) {
-			if (kind === "manual") return "Manual";
+		getSendType(config) {
 			if (config?.type && TYPE_LABELS[config.type]) return `Auto ${TYPE_LABELS[config.type]}`;
 			return "Auto Action";
 		}
@@ -1424,10 +1359,12 @@
 			})).filter((item) => item.value);
 		}
 		getStartIndex(config, input, items) {
+			const cursor = this.readCursor(config.key);
 			const uiState = this.options.getPickerUiState?.(config.key) || {};
-			const savedValue = String(uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || "").trim();
-			const savedIndex = Number(uiState.itemIndex);
+			const savedValue = String(cursor?.lastSelectedValue || uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || "").trim();
+			const savedIndex = Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0 ? Number(cursor.nextIndex) : Number(uiState.itemIndex);
 			if (Number.isFinite(savedIndex) && savedIndex >= 0 && items[savedIndex]?.value === savedValue) return savedIndex;
+			if (Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0) return Number(cursor.nextIndex) % items.length;
 			const selectedIndex = items.findIndex((item) => item.isSelected);
 			if (selectedIndex >= 0) return selectedIndex;
 			const valueIndex = items.findIndex((item) => item.value === savedValue);
@@ -1452,12 +1389,23 @@
 			if (!input || !picker) return false;
 			const element = this.findLiveItemElement(config, picker, item);
 			if (!element) return false;
+			const selectOptions = {
+				focus: false,
+				focusState: options.focusState,
+				persistUiState: false
+			};
 			if (element.classList.contains("ctrlem-db-media-tile")) {
-				this.options.selectMediaItem(input, picker, element, options);
+				this.options.selectMediaItem(input, picker, element, selectOptions);
 				return true;
 			}
-			this.options.selectTextItem(input, picker, element, options);
+			this.options.selectTextItem(input, picker, element, selectOptions);
 			return true;
+		}
+		isNativeSendButtonReady(button) {
+			return Boolean(button && button.isConnected && !button.disabled && !button.hasAttribute("disabled") && button.getAttribute("aria-disabled") !== "true" && !button.classList?.contains("disabled") && !button.classList?.contains("is-disabled"));
+		}
+		getNativeSendButton(commandKey) {
+			return document.querySelector(`[data-send="${CSS.escape(commandKey)}"]`);
 		}
 		setButtonState(button, isActive) {
 			if (!button) return;
@@ -1478,452 +1426,81 @@
 		}
 		updateTaskInterval(commandKey, seconds) {
 			const state = this.states.get(commandKey);
-			if (!state?.taskId) return;
-			this.tryQueueLock((queue) => {
-				const task = queue.tasks.find((item) => item.id === state.taskId && item.kind === "auto");
-				if (!task) return;
-				const nextInterval = clampAutoSendInterval(seconds);
-				task.taskIntervalSeconds = nextInterval;
-				const now = Date.now();
-				if (task.status !== TASK_STATUS.SENDING && Number(task.dueAt || 0) > now) {
-					task.dueAt = Math.max(now + this.getBufferedIntervalMs(nextInterval), this.getTaskNextSendAllowedAt(queue, task));
-					task.progressStartedAt = now;
-					task.progressEndsAt = task.dueAt;
-				}
-			});
-		}
-		parseStoredQueue(raw) {
-			if (!raw) return this.createQueueState();
-			try {
-				const parsed = JSON.parse(raw);
-				return this.normalizeQueueState(parsed);
-			} catch {
-				return this.createQueueState();
-			}
-		}
-		createQueueState() {
-			return {
-				tasks: [],
-				lastSentAt: 0,
-				nextSendAllowedAt: 0,
-				activeSendTaskId: "",
-				activeSendOwnerId: "",
-				activeSendStartedAt: 0,
-				activeSendSettleAt: 0,
-				activeSendsByReceiver: {},
-				rateLimitBackoffUntil: 0,
-				receiverCooldowns: {},
-				notifications: [],
-				lock: null,
-				heartbeats: {},
-				updatedAt: Date.now()
-			};
-		}
-		getHeartbeatTime(value) {
-			if (value && typeof value === "object") return Math.max(0, Number(value.at) || 0);
-			return Math.max(0, Number(value) || 0);
-		}
-		getHeartbeatPageKey(value) {
-			if (value && typeof value === "object") return String(value.pageKey || "").trim();
-			return "";
-		}
-		normalizeReceiverCooldown(source) {
-			const cooldown = source && typeof source === "object" ? source : {};
-			return {
-				lastSentAt: Math.max(0, Number(cooldown.lastSentAt) || 0),
-				nextSendAllowedAt: Math.max(0, Number(cooldown.nextSendAllowedAt) || 0),
-				rateLimitBackoffUntil: Math.max(0, Number(cooldown.rateLimitBackoffUntil) || 0)
-			};
-		}
-		normalizeReceiverCooldowns(source) {
-			const cooldowns = {};
-			if (!source || typeof source !== "object") return cooldowns;
-			Object.keys(source).forEach((receiverKey) => {
-				const key = this.normalizeReceiverKey(receiverKey);
-				if (!key) return;
-				const nextCooldown = this.normalizeReceiverCooldown(source[receiverKey]);
-				const currentCooldown = this.normalizeReceiverCooldown(cooldowns[key]);
-				cooldowns[key] = {
-					lastSentAt: Math.max(currentCooldown.lastSentAt, nextCooldown.lastSentAt),
-					nextSendAllowedAt: Math.max(currentCooldown.nextSendAllowedAt, nextCooldown.nextSendAllowedAt),
-					rateLimitBackoffUntil: Math.max(currentCooldown.rateLimitBackoffUntil, nextCooldown.rateLimitBackoffUntil)
-				};
-			});
-			return cooldowns;
-		}
-		normalizeActiveSend(source) {
-			const active = source && typeof source === "object" ? source : {};
-			return {
-				taskId: String(active.taskId || ""),
-				ownerId: String(active.ownerId || ""),
-				startedAt: Math.max(0, Number(active.startedAt) || 0),
-				expiresAt: Math.max(0, Number(active.expiresAt) || 0)
-			};
-		}
-		normalizeActiveSendsByReceiver(source) {
-			const activeSends = {};
-			if (!source || typeof source !== "object") return activeSends;
-			Object.keys(source).forEach((receiverKey) => {
-				const key = this.normalizeReceiverKey(receiverKey);
-				if (!key) return;
-				const active = this.normalizeActiveSend(source[receiverKey]);
-				if (active.taskId) activeSends[key] = active;
-			});
-			return activeSends;
-		}
-		normalizeQueueNotification(notification) {
-			const source = notification && typeof notification === "object" ? notification : {};
-			return {
-				id: String(source.id || ""),
-				taskId: String(source.taskId || ""),
-				receiverKey: source.receiverKey ? this.normalizeReceiverKey(source.receiverKey) : "",
-				commandKey: String(source.commandKey || ""),
-				kind: String(source.kind || ""),
-				message: String(source.message || ""),
-				level: String(source.level || "info"),
-				createdAt: Math.max(0, Number(source.createdAt) || 0)
-			};
-		}
-		normalizeQueueNotifications(source) {
-			if (!Array.isArray(source)) return [];
+			if (!state) return;
+			const nextInterval = clampAutoSendInterval(seconds);
 			const now = Date.now();
-			return source.map((item) => this.normalizeQueueNotification(item)).filter((item) => item.id && item.receiverKey && item.message && item.createdAt > 0 && now - item.createdAt <= QUEUE_NOTIFICATION_TTL_MS);
-		}
-		normalizeReceiverKey(receiverKey) {
-			const key = String(receiverKey || "").trim();
-			if (!key) return this.getReceiverKey();
-			if (key.startsWith("receiver:") || key.startsWith("receiver-url:")) return key;
-			if (key.startsWith("code:")) return `receiver:${key.slice(5).toUpperCase()}`;
-			const pathMatch = key.match(/\/u\/([^/?#]+)/i);
-			if (pathMatch?.[1]) return `receiver:${decodeURIComponent(pathMatch[1]).toUpperCase()}`;
-			return key;
-		}
-		getReceiverCooldown(queue, receiverKey) {
-			const key = this.normalizeReceiverKey(receiverKey);
-			const source = queue?.receiverCooldowns?.[key];
-			return this.normalizeReceiverCooldown(source);
-		}
-		ensureReceiverCooldown(queue, receiverKey) {
-			const key = this.normalizeReceiverKey(receiverKey);
-			queue.receiverCooldowns ||= {};
-			queue.receiverCooldowns[key] = this.normalizeReceiverCooldown(queue.receiverCooldowns[key]);
-			return queue.receiverCooldowns[key];
-		}
-		getReceiverNextSendAllowedAt(queue, receiverKey) {
-			const cooldown = this.getReceiverCooldown(queue, receiverKey);
-			return Math.max(Number(cooldown.nextSendAllowedAt || 0), Number(cooldown.rateLimitBackoffUntil || 0));
-		}
-		getTaskNextSendAllowedAt(queue, task) {
-			return this.getReceiverNextSendAllowedAt(queue, this.getTaskReceiverKey(task));
-		}
-		setReceiverAttemptCooldown(queue, task, attemptedAt, nextAllowedAt) {
-			const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
-			cooldown.lastSentAt = Math.max(Number(cooldown.lastSentAt || 0), attemptedAt);
-			cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), nextAllowedAt);
-		}
-		setReceiverRateLimitBackoff(queue, task, backoffUntil) {
-			const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
-			cooldown.rateLimitBackoffUntil = Math.max(Number(cooldown.rateLimitBackoffUntil || 0), backoffUntil);
-			cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), backoffUntil);
-		}
-		normalizeTask(task, index) {
-			const createdAt = Math.max(0, Number(task.createdAt) || Date.now());
-			const sequence = Number.isFinite(Number(task.sequence)) ? Number(task.sequence) : createdAt + index;
-			const hasTaskInterval = task.taskIntervalSeconds !== void 0 && task.taskIntervalSeconds !== null && task.taskIntervalSeconds !== "";
-			const pageKey = String(task.pageKey || "").trim();
-			const pageCode = String(task.pageCode || "").trim();
-			return {
-				...task,
-				id: String(task.id || ""),
-				key: String(task.key || ""),
-				kind: String(task.kind || ""),
-				ownerId: String(task.ownerId || ""),
-				commandKey: String(task.commandKey || ""),
-				sendType: String(task.sendType || task.kind || ""),
-				pageKey,
-				pageUrl: String(task.pageUrl || task.pageKey || "").trim(),
-				pageCode,
-				receiverKey: this.normalizeReceiverKey(task.receiverKey || this.getReceiverKey(pageKey, pageCode)),
-				source: String(task.source || task.kind || ""),
-				commandPayload: String(task.commandPayload || ""),
-				targetDevice: String(task.targetDevice || "").trim(),
-				snapshot: Array.isArray(task.snapshot) ? task.snapshot : [],
-				categoryId: String(task.categoryId || ""),
-				category: String(task.category || ""),
-				itemValue: String(task.itemValue || ""),
-				itemIndex: Number.isFinite(Number(task.itemIndex)) ? Number(task.itemIndex) : -1,
-				nextIndex: Number.isFinite(Number(task.nextIndex)) ? Number(task.nextIndex) : -1,
-				taskIntervalSeconds: clampAutoSendInterval(hasTaskInterval ? task.taskIntervalSeconds : this.getIntervalSeconds()),
-				createdAt,
-				dueAt: Math.max(0, Number(task.dueAt) || 0),
-				sequence,
-				status: task.status === TASK_STATUS.SENDING ? TASK_STATUS.SENDING : TASK_STATUS.PENDING,
-				attemptedAt: Math.max(0, Number(task.attemptedAt) || 0),
-				attemptOwnerId: String(task.attemptOwnerId || ""),
-				attemptExpiresAt: Math.max(0, Number(task.attemptExpiresAt) || 0),
-				progressStartedAt: Math.max(0, Number(task.progressStartedAt) || createdAt),
-				progressEndsAt: Math.max(0, Number(task.progressEndsAt) || Number(task.dueAt) || createdAt),
-				nextIndexAfterAttempt: Number.isFinite(Number(task.nextIndexAfterAttempt)) ? Number(task.nextIndexAfterAttempt) : -1
-			};
-		}
-		normalizeQueueState(queue) {
-			const source = queue && typeof queue === "object" ? queue : {};
-			const heartbeats = source.heartbeats && typeof source.heartbeats === "object" ? source.heartbeats : {};
-			const lastSentAt = Math.max(0, Number(source.lastSentAt) || 0);
-			const migratedNextAllowedAt = lastSentAt > 0 ? lastSentAt + this.getMinimumRequestIntervalMs() : 0;
-			const tasks = Array.isArray(source.tasks) ? source.tasks.map((task, index) => this.normalizeTask(task, index)).filter((task) => task.id && task.key && task.kind && task.commandKey) : [];
-			const legacyNextSendAllowedAt = Math.max(0, Number(source.nextSendAllowedAt) || migratedNextAllowedAt);
-			const legacyRateLimitBackoffUntil = Math.max(0, Number(source.rateLimitBackoffUntil) || 0);
-			const receiverCooldowns = this.normalizeReceiverCooldowns(source.receiverCooldowns);
-			const activeSendsByReceiver = this.normalizeActiveSendsByReceiver(source.activeSendsByReceiver);
-			const notifications = this.normalizeQueueNotifications(source.notifications);
-			const legacyCooldown = this.normalizeReceiverCooldown({
-				lastSentAt,
-				nextSendAllowedAt: legacyNextSendAllowedAt,
-				rateLimitBackoffUntil: legacyRateLimitBackoffUntil
-			});
-			if (legacyCooldown.lastSentAt || legacyCooldown.nextSendAllowedAt || legacyCooldown.rateLimitBackoffUntil) new Set(tasks.length ? tasks.map((task) => this.getTaskReceiverKey(task)) : [this.getReceiverKey()]).forEach((receiverKey) => {
-				const cooldown = this.ensureReceiverCooldown({ receiverCooldowns }, receiverKey);
-				cooldown.lastSentAt = Math.max(cooldown.lastSentAt, legacyCooldown.lastSentAt);
-				cooldown.nextSendAllowedAt = Math.max(cooldown.nextSendAllowedAt, legacyCooldown.nextSendAllowedAt);
-				cooldown.rateLimitBackoffUntil = Math.max(cooldown.rateLimitBackoffUntil, legacyCooldown.rateLimitBackoffUntil);
-			});
-			const legacyActiveTaskId = String(source.activeSendTaskId || "");
-			if (legacyActiveTaskId) {
-				const legacyActiveTask = tasks.find((task) => task.id === legacyActiveTaskId);
-				const receiverKey = this.getTaskReceiverKey(legacyActiveTask || {});
-				if (receiverKey && !activeSendsByReceiver[receiverKey]) activeSendsByReceiver[receiverKey] = this.normalizeActiveSend({
-					taskId: legacyActiveTaskId,
-					ownerId: source.activeSendOwnerId || legacyActiveTask?.attemptOwnerId || legacyActiveTask?.ownerId || "",
-					startedAt: source.activeSendStartedAt || legacyActiveTask?.attemptedAt || 0,
-					expiresAt: source.activeSendSettleAt || legacyActiveTask?.attemptExpiresAt || 0
-				});
+			state.taskIntervalSeconds = nextInterval;
+			if (Number(state.dueAt || 0) > now) {
+				state.dueAt = now + this.getBufferedIntervalMs(nextInterval);
+				state.progressStartedAt = now;
+				state.progressEndsAt = state.dueAt;
 			}
-			return {
-				tasks,
-				lastSentAt,
-				nextSendAllowedAt: legacyNextSendAllowedAt,
-				activeSendTaskId: String(source.activeSendTaskId || ""),
-				activeSendOwnerId: String(source.activeSendOwnerId || ""),
-				activeSendStartedAt: Math.max(0, Number(source.activeSendStartedAt) || 0),
-				activeSendSettleAt: Math.max(0, Number(source.activeSendSettleAt) || 0),
-				activeSendsByReceiver,
-				rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
-				receiverCooldowns,
-				notifications,
-				lock: source.lock && typeof source.lock === "object" ? source.lock : null,
-				heartbeats,
-				updatedAt: Math.max(0, Number(source.updatedAt) || 0)
-			};
+			this.renderManager();
 		}
-		getStoredQueue() {
-			return this.parseStoredQueue(window.localStorage.getItem(AUTO_SEND_QUEUE_STORAGE_KEY));
-		}
-		writeQueue(queue) {
-			queue.updatedAt = Date.now();
-			window.localStorage.setItem(AUTO_SEND_QUEUE_STORAGE_KEY, JSON.stringify(queue));
-			this.applyStoredQueue(queue);
-		}
-		restoreSeenNotificationIds() {
+		readSessionState() {
 			try {
-				const ids = JSON.parse(window.sessionStorage.getItem(SEEN_NOTIFICATION_STORAGE_KEY) || "[]");
-				if (Array.isArray(ids)) this.seenNotificationIds = new Set(ids.map((id) => String(id)));
+				const parsed = JSON.parse(window.sessionStorage.getItem("ctrlemDbAutoSendSession.v1") || "{}");
+				return parsed && typeof parsed === "object" ? parsed : {};
 			} catch {
-				this.seenNotificationIds.clear();
+				return {};
 			}
 		}
-		rememberSeenNotificationId(id) {
-			this.seenNotificationIds.add(id);
-			const ids = Array.from(this.seenNotificationIds).slice(-100);
-			this.seenNotificationIds = new Set(ids);
+		writeSessionState(state) {
 			try {
-				window.sessionStorage.setItem(SEEN_NOTIFICATION_STORAGE_KEY, JSON.stringify(ids));
+				window.sessionStorage.setItem(AUTO_SEND_SESSION_STORAGE_KEY, JSON.stringify(state));
 			} catch {}
 		}
-		pruneQueueNotifications(queue, now = Date.now()) {
-			const before = Array.isArray(queue.notifications) ? queue.notifications.length : 0;
-			queue.notifications = this.normalizeQueueNotifications(queue.notifications).filter((notification) => now - Number(notification.createdAt || 0) <= QUEUE_NOTIFICATION_TTL_MS);
-			return queue.notifications.length !== before;
+		getCursorBucket(state = this.readSessionState()) {
+			const pageKey = this.getPageKey();
+			state.pages ||= {};
+			state.pages[pageKey] ||= {};
+			return state.pages[pageKey];
 		}
-		addQueueNotification(queue, task, message, level = "info", now = Date.now()) {
-			queue.notifications = this.normalizeQueueNotifications(queue.notifications);
-			queue.notifications.push({
-				id: createId("notice"),
-				taskId: String(task?.id || ""),
-				receiverKey: this.getTaskReceiverKey(task),
-				commandKey: String(task?.commandKey || ""),
-				kind: String(task?.kind || ""),
-				message,
-				level,
-				createdAt: now
-			});
+		readCursor(commandKey) {
+			const state = this.readSessionState();
+			return this.getCursorBucket(state)[commandKey] || null;
 		}
-		showQueueNotifications(queue) {
-			const receiverKey = this.getReceiverKey();
-			this.normalizeQueueNotifications(queue?.notifications).forEach((notification) => {
-				if (notification.receiverKey !== receiverKey) return;
-				if (this.seenNotificationIds.has(notification.id)) return;
-				this.rememberSeenNotificationId(notification.id);
-				this.options.notifySite(notification.message, notification.level);
-			});
-		}
-		cleanStaleTasks(queue, now = Date.now()) {
-			let changed = false;
-			const heartbeats = queue.heartbeats || {};
-			Object.keys(heartbeats).forEach((ownerId) => {
-				if (now - this.getHeartbeatTime(heartbeats[ownerId]) > HEARTBEAT_TIMEOUT_MS) {
-					delete heartbeats[ownerId];
-					changed = true;
-				}
-			});
-			const before = queue.tasks.length;
-			queue.tasks = queue.tasks.filter((task) => {
-				if (task.kind !== "manual") return true;
-				return now - this.getHeartbeatTime(heartbeats[task.ownerId]) <= HEARTBEAT_TIMEOUT_MS;
-			});
-			if (this.pruneQueueNotifications(queue, now)) changed = true;
-			queue.activeSendsByReceiver ||= {};
-			Object.keys(queue.activeSendsByReceiver).forEach((receiverKey) => {
-				const active = this.normalizeActiveSend(queue.activeSendsByReceiver[receiverKey]);
-				const activeTask = queue.tasks.find((task) => task.id === active.taskId);
-				const activeOwnerId = String(active.ownerId || activeTask?.attemptOwnerId || activeTask?.ownerId || "");
-				const activeStartedAt = Number(active.startedAt || activeTask?.attemptedAt || 0);
-				const activeOwnerStale = activeOwnerId && activeOwnerId !== this.instanceId && now - this.getHeartbeatTime(heartbeats[activeOwnerId]) > HEARTBEAT_TIMEOUT_MS && now - activeStartedAt > HEARTBEAT_TIMEOUT_MS;
-				if (!activeTask || activeOwnerStale) {
-					if (activeTask?.status === TASK_STATUS.SENDING) this.requeueTimedOutTask(queue, activeTask, now);
-					this.clearActiveSend(queue, receiverKey);
-					changed = true;
-				}
-			});
-			return changed || before !== queue.tasks.length;
-		}
-		tryQueueLock(callback) {
-			const now = Date.now();
-			const token = createId("lock");
-			const ownerId = this.instanceId;
-			for (let attempt = 0; attempt < 3; attempt += 1) {
-				const base = this.getStoredQueue();
-				const lock = base.lock;
-				if (lock?.ownerId && lock.ownerId !== ownerId && Number(lock.expiresAt || 0) > now) return false;
-				base.lock = {
-					ownerId,
-					token,
-					expiresAt: now + LOCK_TTL_MS
-				};
-				window.localStorage.setItem(AUTO_SEND_QUEUE_STORAGE_KEY, JSON.stringify(base));
-				const locked = this.getStoredQueue();
-				if (locked.lock?.ownerId !== ownerId || locked.lock?.token !== token) continue;
-				this.cleanStaleTasks(locked);
-				callback(locked);
-				if (locked.lock?.ownerId === ownerId && locked.lock?.token === token) locked.lock = null;
-				this.writeQueue(locked);
-				return true;
-			}
-			return false;
-		}
-		startHeartbeat() {
-			const beat = () => {
-				this.tryQueueLock((queue) => {
-					queue.heartbeats ||= {};
-					queue.heartbeats[this.instanceId] = {
-						at: Date.now(),
-						pageKey: this.getPageKey()
-					};
-				});
+		writeCursor(commandKey, patch) {
+			const state = this.readSessionState();
+			const bucket = this.getCursorBucket(state);
+			bucket[commandKey] = {
+				...bucket[commandKey] || {},
+				...patch,
+				pageCode: this.getPageCode(),
+				updatedAt: Date.now()
 			};
-			beat();
-			this.heartbeatTimer = window.setInterval(beat, HEARTBEAT_MS);
+			this.writeSessionState(state);
 		}
-		getRateLimitBackoffMs() {
-			return this.getBufferedMinimumRequestIntervalMs();
+		captureNativeSend(event) {
+			if (!(event.target instanceof Element)) return;
+			const button = event.target.closest("[data-send]");
+			if (!button || !this.isNativeSendButtonReady(button)) return;
+			if (!String(button.dataset.send || "")) return;
+			this.recordSendAttempt(this.getReceiverKey(), Date.now());
 		}
-		startRunner() {
-			if (this.runnerTimer) return;
-			this.runnerTimer = window.setInterval(() => {
-				this.processDueQueue();
-			}, RUNNER_MS);
+		recordSendAttempt(receiverKey, now = Date.now()) {
+			this.receiverCooldowns.set(receiverKey, {
+				lastSentAt: now,
+				nextAllowedAt: now + this.getBufferedMinimumRequestIntervalMs()
+			});
 		}
-		unlockSendButton(button) {
-			if (!button?.matches?.("[data-send]")) return;
-			if (button.disabled || button.hasAttribute("disabled")) button.disabled = false;
-			if (button.hasAttribute("disabled")) button.removeAttribute("disabled");
-			if (button.style?.opacity === "0.5") button.style.opacity = "";
-			if (button.style?.pointerEvents === "none") button.style.pointerEvents = "";
-			button.classList?.remove("disabled", "is-disabled");
-			if (button.getAttribute("aria-disabled") !== "false") button.setAttribute("aria-disabled", "false");
+		getReceiverNextAllowedAt(receiverKey) {
+			return Math.max(0, Number(this.receiverCooldowns.get(receiverKey)?.nextAllowedAt) || 0);
 		}
-		unlockSendButtons(root = document) {
-			root.querySelectorAll?.("[data-send]")?.forEach((button) => this.unlockSendButton(button));
-		}
-		startButtonUnlocker() {
-			if (this.buttonUnlockTimer) return;
-			this.unlockSendButtons();
-			this.buttonUnlockTimer = window.setInterval(() => this.unlockSendButtons(), SEND_BUTTON_UNLOCK_MS);
-		}
-		stop(commandKey, reason = "stopped", options = {}) {
+		stop(commandKey, reason = "stopped") {
 			const state = this.states.get(commandKey);
 			if (!state) return;
-			state.stopped = true;
 			this.states.delete(commandKey);
 			this.setButtonState(state.button, false);
 			this.setCommandButtons(commandKey, false);
-			if (options.publish !== false) this.removeTask(state.taskId);
 			this.options.log("info", "Auto-send stopped", {
 				command: commandKey,
 				reason
 			});
+			this.renderManager();
 		}
-		stopAll(reason = "stopped", options = {}) {
-			Array.from(this.states.keys()).forEach((commandKey) => this.stop(commandKey, reason, options));
-		}
-		removeTask(taskId) {
-			this.tryQueueLock((queue) => {
-				queue.tasks = queue.tasks.filter((task) => task.id !== taskId);
-				this.clearActiveSendForTask(queue, taskId);
-			});
-		}
-		removeOwnedTasks(reason = "stopped") {
-			this.stopAll(reason, { publish: false });
-			this.manualTasks.clear();
-			this.tryQueueLock((queue) => {
-				queue.tasks = queue.tasks.filter((task) => task.kind !== "manual" || task.ownerId !== this.instanceId);
-				this.clearActiveSendsForOwner(queue, this.instanceId);
-				if (queue.heartbeats) delete queue.heartbeats[this.instanceId];
-			});
-		}
-		buildTaskKey(pageKey, commandKey, sendType) {
-			return `${pageKey}::${commandKey}::${sendType}`;
-		}
-		taskMatchesCurrentPage(task) {
-			const pageKey = String(task?.pageKey || "").trim();
-			if (pageKey && pageKey === this.getPageKey()) return true;
-			return !pageKey && String(task?.pageCode || "").trim() === this.getPageCode();
-		}
-		taskSortValue(task) {
-			return Number(task?.sequence ?? task?.createdAt ?? 0) || 0;
-		}
-		sortReadyTasks(tasks) {
-			return [...tasks].sort((a, b) => {
-				const sequenceDiff = this.taskSortValue(a) - this.taskSortValue(b);
-				if (sequenceDiff !== 0) return sequenceDiff;
-				return Number(a.dueAt || 0) - Number(b.dueAt || 0);
-			});
-		}
-		getNextSequence(queue) {
-			return Math.max(0, ...queue.tasks.map((task) => this.taskSortValue(task))) + 1;
-		}
-		isOwnerAlive(queue, ownerId, now = Date.now()) {
-			if (ownerId === this.instanceId) return true;
-			return now - this.getHeartbeatTime(queue.heartbeats?.[ownerId]) <= HEARTBEAT_TIMEOUT_MS;
-		}
-		isTaskPageActive(queue, task, now = Date.now()) {
-			if (this.taskMatchesCurrentPage(task)) return true;
-			const taskPageKey = String(task?.pageKey || "").trim();
-			if (!taskPageKey) return false;
-			return Object.values(queue.heartbeats || {}).some((heartbeat) => this.getHeartbeatPageKey(heartbeat) === taskPageKey && now - this.getHeartbeatTime(heartbeat) <= HEARTBEAT_TIMEOUT_MS);
-		}
-		findQueuedAutoTask(queue, config, sendType) {
-			return queue.tasks.find((task) => task.kind === "auto" && task.commandKey === config.key && (task.sendType === sendType || !task.sendType) && this.taskMatchesCurrentPage(task));
+		stopAll(reason = "stopped") {
+			Array.from(this.states.keys()).forEach((commandKey) => this.stop(commandKey, reason));
 		}
 		ensureTaskCategoryVisible(config, task) {
 			if (config.clickOnly || !task?.category) return;
@@ -1938,6 +1515,7 @@
 		}
 		start(config, sendButton, button) {
 			const input = config.inputSelector ? document.querySelector(config.inputSelector) : null;
+			const cursor = this.readCursor(config.key);
 			const items = config.clickOnly ? [] : this.getVisibleItems(config);
 			if (!config.clickOnly && !input) {
 				this.options.notifySite("Auto-send input was not found", "error");
@@ -1951,89 +1529,36 @@
 				this.stop(config.key);
 				return;
 			}
-			const taskId = createId("autosend");
-			const category = this.getTaskCategory(config, items);
-			const pageKey = this.getPageKey();
-			const pageUrl = this.getPageUrl();
-			const pageCode = this.getPageCode();
-			const receiverKey = this.getReceiverKey(pageKey, pageCode);
-			const sendType = this.getSendType(config, "auto");
-			const taskKey = this.buildTaskKey(pageKey, config.key, sendType);
+			const now = Date.now();
 			const taskIntervalSeconds = this.getControlIntervalSeconds(config.key);
 			const startIndex = config.clickOnly ? 0 : this.getStartIndex(config, input, items);
 			const startItem = config.clickOnly ? null : items[startIndex % items.length];
+			const category = cursor?.category || this.getTaskCategory(config, items);
 			const state = {
-				taskId,
+				taskId: createId("autosend"),
 				commandKey: config.key,
 				config,
-				sendButton,
 				button,
-				items,
-				nextIndex: startIndex,
+				sendType: this.getSendType(config),
 				category,
+				categoryId: cursor?.categoryId || startItem?.categoryId || "",
 				profileTitle: this.getProfileTitle(),
-				pageKey,
-				pageUrl,
-				pageCode,
-				receiverKey,
+				pageCode: this.getPageCode(),
+				receiverKey: this.getReceiverKey(),
 				taskIntervalSeconds,
-				stopped: false
+				nextIndex: Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0 ? Number(cursor.nextIndex) : startIndex,
+				itemValue: startItem?.value || cursor?.lastSelectedValue || "",
+				itemIndex: Number.isFinite(Number(startItem?.index)) ? Number(startItem.index) : startIndex,
+				dueAt: now,
+				progressStartedAt: now,
+				progressEndsAt: now,
+				sequence: this.sequence += 1,
+				waitReason: "ready"
 			};
-			let added = false;
-			this.tryQueueLock((queue) => {
-				const existing = this.findQueuedAutoTask(queue, config, sendType);
-				if (existing) {
-					state.taskId = existing.id;
-					state.nextIndex = Number.isFinite(Number(existing.nextIndex)) && Number(existing.nextIndex) >= 0 ? Number(existing.nextIndex) : startIndex;
-					existing.key ||= taskKey;
-					existing.pageKey ||= pageKey;
-					existing.pageUrl ||= pageUrl;
-					existing.pageCode ||= pageCode;
-					existing.receiverKey ||= receiverKey;
-					existing.profileTitle = state.profileTitle;
-					existing.category ||= category;
-					existing.categoryId ||= startItem?.categoryId || "";
-					existing.taskIntervalSeconds = clampAutoSendInterval(existing.taskIntervalSeconds || taskIntervalSeconds);
-					added = true;
-					return;
-				}
-				const now = Date.now();
-				queue.tasks.push({
-					id: taskId,
-					key: taskKey,
-					kind: "auto",
-					commandKey: config.key,
-					sendType,
-					source: "auto",
-					targetDevice: this.getTargetDevice(),
-					pageKey,
-					pageUrl,
-					pageCode,
-					receiverKey,
-					categoryId: startItem?.categoryId || "",
-					category,
-					profileTitle: state.profileTitle,
-					itemValue: startItem?.value || "",
-					itemIndex: Number.isFinite(Number(startItem?.index)) ? Number(startItem.index) : startIndex,
-					nextIndex: startIndex,
-					taskIntervalSeconds,
-					createdAt: now,
-					dueAt: now,
-					progressStartedAt: now,
-					progressEndsAt: now,
-					sequence: this.getNextSequence(queue),
-					status: TASK_STATUS.PENDING
-				});
-				added = true;
-			});
-			if (!added) {
-				this.options.notifySite("Auto-send queue is busy. Try again.", "error");
-				return;
-			}
 			this.states.set(config.key, state);
 			this.setButtonState(button, true);
 			this.setCommandButtons(config.key, true);
-			this.options.log("info", "Auto-send queued", {
+			this.options.log("info", "Auto-send started", {
 				command: config.key,
 				type: config.type,
 				category: state.category,
@@ -2041,8 +1566,8 @@
 				items: config.clickOnly ? null : items.length,
 				intervalSeconds: taskIntervalSeconds
 			});
-			this.restoreTaskSelection(this.getStoredQueue().tasks.find((task) => task.id === state.taskId), state);
 			this.processDueQueue();
+			this.renderManager();
 		}
 		toggle(config, sendButton, button) {
 			if (this.states.has(config.key)) {
@@ -2051,642 +1576,114 @@
 			}
 			this.start(config, sendButton, button);
 		}
-		createRuntimeState(task, config, sendButton, button) {
-			const input = config.inputSelector ? document.querySelector(config.inputSelector) : null;
-			this.ensureTaskCategoryVisible(config, task);
-			const items = config.clickOnly ? [] : this.getVisibleItems(config);
-			if (!config.clickOnly && (!input || items.length === 0)) return null;
-			let nextIndex = Number(task.nextIndex);
-			if (!Number.isFinite(nextIndex) || nextIndex < 0) nextIndex = Number.isFinite(Number(task.itemIndex)) && Number(task.itemIndex) >= 0 ? Number(task.itemIndex) : this.getStartIndex(config, input, items);
-			if (!config.clickOnly && task.itemValue) {
-				const itemIndex = items.findIndex((item) => item.value === task.itemValue && (!task.categoryId || item.categoryId === task.categoryId));
-				if (itemIndex >= 0) nextIndex = itemIndex;
+		updateCursorFromItem(state, item, itemIndex, nextIndex) {
+			state.itemValue = item.value || "";
+			state.itemIndex = Number.isFinite(Number(item.index)) ? Number(item.index) : itemIndex;
+			state.categoryId = item.categoryId || state.categoryId || "";
+			state.category = item.category || state.category || state.config.label || state.commandKey;
+			state.nextIndex = nextIndex;
+			this.writeCursor(state.commandKey, {
+				categoryId: state.categoryId,
+				category: state.category,
+				lastSelectedIndex: state.itemIndex,
+				lastSelectedValue: state.itemValue,
+				nextIndex
+			});
+		}
+		rememberSelectedItem(state, item, itemIndex, nextIndexAfterClick) {
+			state.itemValue = item.value || "";
+			state.itemIndex = Number.isFinite(Number(item.index)) ? Number(item.index) : itemIndex;
+			state.categoryId = item.categoryId || state.categoryId || "";
+			state.category = item.category || state.category || state.config.label || state.commandKey;
+			state.pendingNextIndex = nextIndexAfterClick;
+			this.writeCursor(state.commandKey, {
+				categoryId: state.categoryId,
+				category: state.category,
+				lastSelectedIndex: state.itemIndex,
+				lastSelectedValue: state.itemValue,
+				nextIndex: itemIndex
+			});
+		}
+		prepareAutoTask(state) {
+			const sendButton = this.getNativeSendButton(state.commandKey);
+			if (!sendButton?.isConnected) {
+				state.waitReason = "waiting DOM";
+				return false;
 			}
-			return {
-				taskId: task.id,
-				commandKey: config.key,
-				config,
-				sendButton,
-				button,
-				items,
-				nextIndex,
-				category: task.category || this.getTaskCategory(config, items),
-				profileTitle: task.profileTitle || this.getProfileTitle(),
-				pageKey: task.pageKey || this.getPageKey(),
-				pageUrl: task.pageUrl || task.pageKey || this.getPageUrl(),
-				pageCode: task.pageCode || this.getPageCode(),
-				receiverKey: this.getTaskReceiverKey(task),
-				taskIntervalSeconds: clampAutoSendInterval(task.taskIntervalSeconds || this.getIntervalSeconds()),
-				stopped: false
-			};
-		}
-		restoreTaskSelection(task, state) {
-			if (!task || !state || state.config.clickOnly || state.items.length === 0) return;
-			this.ensureTaskCategoryVisible(state.config, task);
-			state.items = this.getVisibleItems(state.config);
-			if (state.items.length === 0) return;
-			const item = state.items.find((candidate) => candidate.value === task.itemValue && (!task.categoryId || candidate.categoryId === task.categoryId)) || state.items[state.nextIndex % state.items.length];
-			if (!item) return;
-			const focusState = this.options.captureFocusState?.();
-			if (this.selectItem(state.config, item, {
-				focus: false,
-				focusState
-			})) this.options.restoreFocusState?.(focusState);
-		}
-		adoptTask(task) {
-			if (!task || task.kind !== "auto" || !this.taskMatchesCurrentPage(task)) return false;
-			if (this.states.get(task.commandKey)?.taskId === task.id) return true;
-			const config = this.getCommandConfig(task.commandKey);
-			if (!config) return false;
-			const sendButton = document.querySelector(`[data-send="${CSS.escape(task.commandKey)}"]`);
-			const button = document.querySelector(`.ctrlem-db-auto-send-button[data-command="${CSS.escape(task.commandKey)}"]`);
-			if (!sendButton || !button) return false;
-			const state = this.createRuntimeState(task, config, sendButton, button);
-			if (!state) return false;
-			this.states.set(task.commandKey, state);
-			this.setButtonState(button, true);
-			this.setCommandButtons(task.commandKey, true);
-			const input = this.getCommandIntervalInput(task.commandKey);
-			if (input) input.value = String(state.taskIntervalSeconds);
-			this.restoreTaskSelection(task, state);
-			return true;
-		}
-		adoptCurrentPageTasks(queue = this.getStoredQueue()) {
-			let adopted = false;
-			queue.tasks.forEach((task) => {
-				if (task.kind === "auto" && this.taskMatchesCurrentPage(task)) adopted = this.adoptTask(task) || adopted;
-			});
-			return adopted;
-		}
-		applyStoredQueue(queue) {
-			this.showQueueNotifications(queue);
-			const taskIds = new Set((queue?.tasks || []).map((task) => task.id));
-			Array.from(this.states.values()).forEach((state) => {
-				if (taskIds.has(state.taskId)) return;
-				this.stop(state.commandKey, "removed from queue", { publish: false });
-			});
-			Array.from(this.manualTasks.keys()).forEach((taskId) => {
-				if (!taskIds.has(taskId)) this.manualTasks.delete(taskId);
-			});
-			this.adoptCurrentPageTasks(queue);
-			this.refreshControlButtons();
-			this.renderManager();
-		}
-		requestStopTask(taskId) {
-			const state = Array.from(this.states.values()).find((item) => item.taskId === taskId);
-			if (state) {
-				this.stop(state.commandKey);
-				return;
+			if (state.config.clickOnly) {
+				state.waitReason = this.isNativeSendButtonReady(sendButton) ? "ready" : "native disabled";
+				return this.isNativeSendButtonReady(sendButton);
 			}
-			this.removeTask(taskId);
-		}
-		requestStopAllTasks() {
-			this.stopAll("stopped all", { publish: false });
-			this.manualTasks.clear();
-			this.tryQueueLock((queue) => {
-				queue.tasks = [];
-				queue.nextSendAllowedAt = 0;
-				queue.rateLimitBackoffUntil = 0;
-				queue.receiverCooldowns = {};
-				this.clearActiveSend(queue);
-			});
-			this.renderManager();
-		}
-		hasActiveSend(queue, receiverKey) {
-			if (!queue) return false;
-			if (receiverKey) return Boolean(this.getActiveSend(queue, receiverKey));
-			return Boolean(Object.keys(queue.activeSendsByReceiver || {}).length);
-		}
-		getActiveSend(queue, receiverKey) {
-			const key = this.normalizeReceiverKey(receiverKey);
-			const active = queue?.activeSendsByReceiver?.[key];
-			return active?.taskId ? this.normalizeActiveSend(active) : null;
-		}
-		clearActiveSend(queue, receiverKey) {
-			if (!queue) return;
-			queue.activeSendsByReceiver ||= {};
-			if (receiverKey) {
-				const key = this.normalizeReceiverKey(receiverKey);
-				const taskId = String(queue.activeSendsByReceiver[key]?.taskId || "");
-				if (taskId) this.activeSendTaskIdsByReceiver.delete(key);
-				delete queue.activeSendsByReceiver[key];
-				if (queue.activeSendTaskId === taskId) {
-					queue.activeSendTaskId = "";
-					queue.activeSendOwnerId = "";
-					queue.activeSendStartedAt = 0;
-					queue.activeSendSettleAt = 0;
-				}
-				return;
-			}
-			this.activeSendTaskIdsByReceiver.clear();
-			queue.activeSendsByReceiver = {};
-			queue.activeSendTaskId = "";
-			queue.activeSendOwnerId = "";
-			queue.activeSendStartedAt = 0;
-			queue.activeSendSettleAt = 0;
-		}
-		clearActiveSendForTask(queue, taskId) {
-			const id = String(taskId || "");
-			Object.keys(queue?.activeSendsByReceiver || {}).forEach((receiverKey) => {
-				if (queue.activeSendsByReceiver[receiverKey]?.taskId === id) this.clearActiveSend(queue, receiverKey);
-			});
-		}
-		clearActiveSendsForOwner(queue, ownerId) {
-			const id = String(ownerId || "");
-			Object.keys(queue?.activeSendsByReceiver || {}).forEach((receiverKey) => {
-				if (queue.activeSendsByReceiver[receiverKey]?.ownerId === id) this.clearActiveSend(queue, receiverKey);
-			});
-		}
-		beginTaskAttempt(queue, task) {
-			const attemptedAt = Date.now();
-			const nextAllowedAt = attemptedAt + this.getBufferedMinimumRequestIntervalMs();
-			const feedbackTimeoutAt = attemptedAt + SEND_FEEDBACK_TIMEOUT_MS;
-			const targetDevice = String(task.targetDevice || this.getTargetDevice()).trim() || this.getTargetDevice();
-			const receiverKey = this.getTaskReceiverKey(task);
-			task.status = TASK_STATUS.SENDING;
-			task.attemptedAt = attemptedAt;
-			task.attemptOwnerId = this.instanceId;
-			task.attemptExpiresAt = feedbackTimeoutAt;
-			task.targetDevice = targetDevice;
-			queue.lastSentAt = attemptedAt;
-			this.setReceiverAttemptCooldown(queue, task, attemptedAt, nextAllowedAt);
-			queue.activeSendsByReceiver ||= {};
-			queue.activeSendsByReceiver[receiverKey] = {
-				taskId: task.id,
-				ownerId: this.instanceId,
-				startedAt: attemptedAt,
-				expiresAt: feedbackTimeoutAt
-			};
-			queue.activeSendTaskId = task.id;
-			queue.activeSendOwnerId = this.instanceId;
-			queue.activeSendStartedAt = attemptedAt;
-			queue.activeSendSettleAt = feedbackTimeoutAt;
-			this.activeSendTaskIdsByReceiver.set(receiverKey, task.id);
-			return {
-				taskId: task.id,
-				commandKey: task.commandKey,
-				kind: task.kind,
-				commandPayload: String(task.commandPayload || ""),
-				targetDevice,
-				receiverKey,
-				pageCode: String(task.pageCode || this.getPageCode()),
-				attemptedAt
-			};
-		}
-		clearAttemptFields(task) {
-			task.status = TASK_STATUS.PENDING;
-			task.attemptedAt = 0;
-			task.attemptOwnerId = "";
-			task.attemptExpiresAt = 0;
-			task.nextIndexAfterAttempt = -1;
-		}
-		updateAutoTaskToNextItem(task, state, nextIndex) {
-			if (!state || state.config.clickOnly) {
-				task.nextIndex = nextIndex;
-				return;
-			}
+			this.ensureTaskCategoryVisible(state.config, state);
 			state.items = this.getVisibleItems(state.config);
 			if (state.items.length === 0) {
-				task.nextIndex = nextIndex;
-				return;
+				this.options.notifySite("Auto-send category is empty", "error");
+				this.stop(state.commandKey, "category empty");
+				return false;
 			}
-			const normalizedNextIndex = nextIndex % state.items.length;
-			state.nextIndex = normalizedNextIndex;
-			const nextItem = state.items[normalizedNextIndex];
-			task.nextIndex = normalizedNextIndex;
-			task.itemValue = nextItem?.value || task.itemValue || "";
-			task.itemIndex = Number.isFinite(Number(nextItem?.index)) ? Number(nextItem.index) : normalizedNextIndex;
-			task.categoryId = nextItem?.categoryId || task.categoryId || "";
-			task.category = nextItem?.category || task.category || state.category;
+			const itemIndex = Number(state.nextIndex || 0) % state.items.length;
+			const item = state.items[itemIndex];
+			const focusState = this.options.captureFocusState?.();
+			const selected = this.selectItem(state.config, item, { focusState });
+			this.options.restoreFocusState?.(focusState);
+			if (!selected) {
+				state.waitReason = "waiting item";
+				return false;
+			}
+			const nextIndex = (itemIndex + 1) % state.items.length;
+			this.rememberSelectedItem(state, item, itemIndex, nextIndex);
+			state.waitReason = this.isNativeSendButtonReady(sendButton) ? "ready" : "native disabled";
+			return this.isNativeSendButtonReady(sendButton);
 		}
-		completeAttemptedTask(queue, task, now = Date.now()) {
-			if (task.kind === "auto") {
-				const state = this.states.get(task.commandKey);
-				const nextIndex = Number.isFinite(Number(task.nextIndexAfterAttempt)) && Number(task.nextIndexAfterAttempt) >= 0 ? Number(task.nextIndexAfterAttempt) : Number(task.nextIndex || 0);
-				this.updateAutoTaskToNextItem(task, state, nextIndex);
-				this.clearAttemptFields(task);
-				const dueAt = Math.max(now + this.getBufferedIntervalMs(task.taskIntervalSeconds), this.getTaskNextSendAllowedAt(queue, task));
-				task.dueAt = dueAt;
-				task.progressStartedAt = now;
-				task.progressEndsAt = dueAt;
-			} else {
-				queue.tasks = queue.tasks.filter((item) => item.id !== task.id);
-				this.manualTasks.delete(task.id);
+		completeAutoClick(state, now = Date.now()) {
+			if (!state.config.clickOnly && Number.isFinite(Number(state.pendingNextIndex))) {
+				this.updateCursorFromItem(state, {
+					value: state.itemValue,
+					index: state.itemIndex,
+					categoryId: state.categoryId,
+					category: state.category
+				}, state.itemIndex, Number(state.pendingNextIndex));
+				state.pendingNextIndex = -1;
 			}
-			this.addQueueNotification(queue, task, "Command sent", "success", now);
-			this.clearActiveSend(queue, this.getTaskReceiverKey(task));
+			state.dueAt = now + this.getBufferedIntervalMs(state.taskIntervalSeconds);
+			state.progressStartedAt = now;
+			state.progressEndsAt = state.dueAt;
+			state.waitReason = "cooldown";
 		}
-		requeueRateLimitedTask(queue, task, backoffUntil) {
-			this.clearAttemptFields(task);
-			const now = Date.now();
-			task.dueAt = Math.max(backoffUntil, now + this.getBufferedMinimumRequestIntervalMs());
-			task.progressStartedAt = now;
-			task.progressEndsAt = task.dueAt;
-			if (task.kind === "auto") {
-				const state = this.states.get(task.commandKey);
-				if (state && Number.isFinite(Number(task.nextIndex)) && Number(task.nextIndex) >= 0) state.nextIndex = Number(task.nextIndex);
-			}
-			this.clearActiveSend(queue, this.getTaskReceiverKey(task));
-		}
-		requeueTimedOutTask(queue, task, now = Date.now()) {
-			this.clearAttemptFields(task);
-			task.dueAt = Math.max(now + INTERVAL_BUFFER_MS, this.getTaskNextSendAllowedAt(queue, task));
-			task.progressStartedAt = now;
-			task.progressEndsAt = task.dueAt;
-			if (task.kind === "auto") {
-				const state = this.states.get(task.commandKey);
-				if (state && Number.isFinite(Number(task.nextIndex)) && Number(task.nextIndex) >= 0) state.nextIndex = Number(task.nextIndex);
-			}
-			this.clearActiveSend(queue, this.getTaskReceiverKey(task));
-			this.options.log("warn", "Auto-send direct API attempt timed out; task will retry", {
-				command: task.commandKey,
-				kind: task.kind,
-				receiverKey: this.getTaskReceiverKey(task)
+		runAutoTask(state) {
+			if (!this.prepareAutoTask(state)) return false;
+			const sendButton = this.getNativeSendButton(state.commandKey);
+			if (!this.isNativeSendButtonReady(sendButton)) return false;
+			sendButton.click();
+			this.completeAutoClick(state, Date.now());
+			this.options.log("info", "Auto-send clicked native Send", {
+				command: state.commandKey,
+				receiverKey: state.receiverKey
 			});
-		}
-		getRetryableAttemptTask(queue, receiverKey) {
-			if (receiverKey) {
-				const active = this.getActiveSend(queue, receiverKey);
-				if (active?.taskId) {
-					const activeTask = queue.tasks.find((task) => task.id === active.taskId);
-					if (activeTask) return activeTask;
-				}
-				return [...queue.tasks].filter((task) => task.status === TASK_STATUS.SENDING && this.getTaskReceiverKey(task) === this.normalizeReceiverKey(receiverKey)).sort((a, b) => Number(b.attemptedAt || 0) - Number(a.attemptedAt || 0))[0] || null;
-			}
-			return [...queue.tasks].filter((task) => task.status === TASK_STATUS.SENDING).sort((a, b) => Number(b.attemptedAt || 0) - Number(a.attemptedAt || 0))[0] || null;
-		}
-		settleActiveSend(queue, receiverKey, now = Date.now()) {
-			if (!this.hasActiveSend(queue, receiverKey)) return false;
-			const active = this.getActiveSend(queue, receiverKey);
-			const task = this.getRetryableAttemptTask(queue, receiverKey);
-			const activeOwnerId = String(active?.ownerId || task?.attemptOwnerId || "");
-			if (activeOwnerId && activeOwnerId !== this.instanceId && this.isOwnerAlive(queue, activeOwnerId, now)) return true;
-			if (now < Math.max(Number(active?.expiresAt || 0), Number(task?.attemptExpiresAt || 0), Number(task?.attemptedAt || active?.startedAt || 0) + SEND_FEEDBACK_TIMEOUT_MS)) return true;
-			if (task) this.requeueTimedOutTask(queue, task, now);
-			else this.clearActiveSend(queue, receiverKey);
 			return true;
 		}
-		settleExpiredActiveSends(queue, now = Date.now()) {
-			let blocked = false;
-			Object.keys(queue.activeSendsByReceiver || {}).forEach((receiverKey) => {
-				if (this.settleActiveSend(queue, receiverKey, now)) blocked = true;
+		getRunnableTasks(now = Date.now()) {
+			return Array.from(this.states.values()).filter((state) => Number(state.dueAt || 0) <= now).sort((a, b) => {
+				const dueDiff = Number(a.dueAt || 0) - Number(b.dueAt || 0);
+				if (dueDiff !== 0) return dueDiff;
+				return Number(a.sequence || 0) - Number(b.sequence || 0);
 			});
-			return blocked;
-		}
-		runAutoTask(queue, task) {
-			const state = this.states.get(task.commandKey);
-			if (!state || state.taskId !== task.id || state.stopped) return "skip";
-			if (!state.sendButton.isConnected) {
-				this.stop(state.commandKey, "send button disconnected", { publish: false });
-				return "skip";
-			}
-			const focusState = this.options.captureFocusState?.();
-			if (!state.config.clickOnly) {
-				state.items = this.getVisibleItems(state.config);
-				if (state.items.length === 0) {
-					this.options.notifySite("Auto-send category is empty", "error");
-					this.stop(state.commandKey, "category empty", { publish: false });
-					return "remove";
-				}
-				const itemIndex = state.nextIndex % state.items.length;
-				const item = state.items[itemIndex];
-				if (!this.selectItem(state.config, item, {
-					focus: false,
-					focusState
-				})) {
-					this.options.notifySite("Auto-send item is no longer visible", "error");
-					this.stop(state.commandKey, "item no longer visible", { publish: false });
-					return "remove";
-				}
-				task.itemValue = item.value || "";
-				task.itemIndex = Number.isFinite(Number(item.index)) ? Number(item.index) : itemIndex;
-				task.categoryId = item.categoryId || task.categoryId || "";
-				task.category = item.category || task.category || state.category;
-				task.nextIndex = itemIndex;
-				task.nextIndexAfterAttempt = (itemIndex + 1) % state.items.length;
-			}
-			const snapshot = this.getInputSnapshot(state.sendButton, state.config);
-			const payload = this.buildCommandPayload(state.commandKey, snapshot);
-			if (!payload) {
-				this.options.notifySite("Auto-send command could not be built", "error");
-				this.stop(state.commandKey, "unsupported or invalid command payload", { publish: false });
-				this.options.restoreFocusState?.(focusState);
-				return "remove";
-			}
-			task.commandPayload = payload.commandPayload;
-			task.targetDevice = payload.targetDevice;
-			this.options.restoreFocusState?.(focusState);
-			return this.beginTaskAttempt(queue, task);
-		}
-		runManualTask(queue, task) {
-			const state = this.manualTasks.get(task.id);
-			if (!state) return "remove";
-			if (!task.commandPayload && state.commandPayload) task.commandPayload = state.commandPayload;
-			if (!task.targetDevice && state.targetDevice) task.targetDevice = state.targetDevice;
-			if (!task.commandPayload) return "remove";
-			return this.beginTaskAttempt(queue, task);
-		}
-		isAutoTaskRunnable(task) {
-			if (!this.taskMatchesCurrentPage(task)) return false;
-			if (!this.adoptTask(task)) return false;
-			const state = this.states.get(task.commandKey);
-			return Boolean(state && state.taskId === task.id && !state.stopped && state.sendButton?.isConnected);
-		}
-		getNextRunnableTask(queue, now = Date.now(), requireReceiverReady = false) {
-			const readyTasks = this.sortReadyTasks(queue.tasks.filter((task) => task.status !== TASK_STATUS.SENDING && Number(task.dueAt || 0) <= now));
-			for (const task of readyTasks) {
-				if (this.hasActiveSend(queue, this.getTaskReceiverKey(task))) continue;
-				if (requireReceiverReady && now < this.getTaskNextSendAllowedAt(queue, task)) continue;
-				if (task.kind === "manual") {
-					if (task.ownerId === this.instanceId && this.manualTasks.has(task.id)) return task;
-					continue;
-				}
-				if (task.kind !== "auto") continue;
-				if (!this.isTaskPageActive(queue, task, now)) continue;
-				if (!this.taskMatchesCurrentPage(task)) continue;
-				if (this.isAutoTaskRunnable(task)) return task;
-			}
-			return null;
-		}
-		isCurrentAttempt(queue, task, attempt) {
-			const active = this.getActiveSend(queue, attempt.receiverKey);
-			return Boolean(task && active?.taskId === attempt.taskId && task.status === TASK_STATUS.SENDING && task.attemptOwnerId === this.instanceId && Number(task.attemptedAt || 0) === Number(attempt.attemptedAt || 0));
-		}
-		scheduleAttemptFinalizationRetry(action, attempt, reason = "", retryAttempt = 0) {
-			const delay = FINALIZE_RETRY_DELAYS_MS[retryAttempt];
-			if (delay === void 0) {
-				this.options.log("warn", "Auto-send attempt finalization could not acquire queue lock", {
-					action,
-					command: attempt?.commandKey,
-					kind: attempt?.kind,
-					receiverKey: attempt?.receiverKey,
-					reason
-				});
-				return;
-			}
-			window.setTimeout(() => {
-				if (action === "confirm") this.confirmQueuedAttempt(attempt, retryAttempt + 1);
-				else this.requeueFailedAttempt(attempt, reason, retryAttempt + 1);
-			}, delay);
-		}
-		confirmQueuedAttempt(attempt, retryAttempt = 0) {
-			let completed = false;
-			if (!this.tryQueueLock((queue) => {
-				const task = queue.tasks.find((item) => item.id === attempt.taskId);
-				if (!this.isCurrentAttempt(queue, task, attempt)) return;
-				this.completeAttemptedTask(queue, task, Date.now());
-				completed = true;
-				this.options.log("info", "Auto-send task sent through direct API", {
-					command: attempt.commandKey,
-					kind: attempt.kind,
-					receiverKey: attempt.receiverKey
-				});
-			})) {
-				this.scheduleAttemptFinalizationRetry("confirm", attempt, "", retryAttempt);
-				return;
-			}
-			if (completed) this.processDueQueue();
-		}
-		requeueFailedAttempt(attempt, reason, retryAttempt = 0) {
-			const now = Date.now();
-			const backoffUntil = now + this.getRateLimitBackoffMs();
-			let requeued = false;
-			if (!this.tryQueueLock((queue) => {
-				const task = queue.tasks.find((item) => item.id === attempt.taskId);
-				if (!this.isCurrentAttempt(queue, task, attempt)) return;
-				this.setReceiverRateLimitBackoff(queue, task, backoffUntil);
-				this.requeueRateLimitedTask(queue, task, backoffUntil);
-				requeued = true;
-				this.options.log("warn", "Auto-send direct API failed; task will retry", {
-					command: attempt.commandKey,
-					kind: attempt.kind,
-					receiverKey: attempt.receiverKey,
-					retryInMs: backoffUntil - now,
-					reason
-				});
-			})) {
-				this.scheduleAttemptFinalizationRetry("requeue", attempt, reason, retryAttempt);
-				return;
-			}
-			if (requeued) this.processDueQueue();
-		}
-		async sendQueuedTask(attempt) {
-			if (!attempt?.commandPayload) {
-				this.requeueFailedAttempt(attempt, "missing command payload");
-				return;
-			}
-			try {
-				const response = await fetch("/api/command", {
-					method: "POST",
-					credentials: "same-origin",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						controlCode: attempt.pageCode || this.getPageCode(),
-						command: attempt.commandPayload,
-						targetDevice: attempt.targetDevice || this.getTargetDevice()
-					})
-				});
-				if (!response.ok) {
-					let text = "";
-					try {
-						text = await response.text();
-					} catch {
-						text = "";
-					}
-					throw new Error(text || `HTTP ${response.status}`);
-				}
-				this.confirmQueuedAttempt(attempt);
-			} catch (error) {
-				this.requeueFailedAttempt(attempt, error instanceof Error ? error.message : String(error || "request failed"));
-			}
 		}
 		processDueQueue() {
-			let attempt = null;
-			this.tryQueueLock((queue) => {
-				const now = Date.now();
-				this.settleExpiredActiveSends(queue, now);
-				const task = this.getNextRunnableTask(queue, now, true);
-				if (!task) return;
-				const result = task.kind === "manual" ? this.runManualTask(queue, task) : this.runAutoTask(queue, task);
-				if (result === "skip") return;
-				if (result === "remove") {
-					queue.tasks = queue.tasks.filter((t) => t.id !== task.id);
-					if (task.kind === "manual") this.manualTasks.delete(task.id);
-					return;
-				}
-				if (result?.taskId) attempt = result;
-			});
-			if (attempt) this.sendQueuedTask(attempt);
-		}
-		getInputSnapshot(button, config) {
-			const panel = button.closest(".cmd-panel") || button.closest("form") || document;
-			const fields = Array.from(panel.querySelectorAll("input, textarea, select"));
-			const configuredInputSelector = String(config?.inputSelector || "");
-			if (configuredInputSelector) {
-				const input = document.querySelector(configuredInputSelector);
-				if (input && !fields.includes(input)) fields.push(input);
-			}
-			return fields.map((field, index) => ({
-				selector: field.id ? `#${CSS.escape(field.id)}` : configuredInputSelector && field.matches?.(configuredInputSelector) ? configuredInputSelector : "",
-				index,
-				value: field.type === "checkbox" || field.type === "radio" ? field.checked : field.value,
-				checked: Boolean(field.checked)
-			}));
-		}
-		getSnapshotValue(snapshot, selector) {
-			if (!selector) return "";
-			const item = snapshot.find((entry) => entry.selector === selector);
-			return String(item?.value || "").trim();
-		}
-		getSnapshotNumber(snapshot, selector, fallback) {
-			const raw = this.getSnapshotValue(snapshot, selector);
-			const value = Number.parseInt(raw, 10);
-			return Number.isFinite(value) ? value : fallback;
-		}
-		isDirectCommandSupported(commandKey) {
-			return commandKey === "sendMessage" || commandKey === "writeForMe" || DIRECT_SIMPLE_COMMANDS.has(commandKey) || DIRECT_URL_COMMANDS.has(commandKey);
-		}
-		buildCommandPayload(commandKey, snapshot) {
-			const key = String(commandKey || "").trim();
-			const targetDevice = this.getTargetDevice();
-			if (DIRECT_SIMPLE_COMMANDS.has(key)) return {
-				commandPayload: key,
-				targetDevice
-			};
-			if (key === "sendMessage") {
-				const text = this.getSnapshotValue(snapshot, "#val-sendMessage");
-				if (!text) return null;
-				return {
-					commandPayload: `sendMessage ${encodeURIComponent(text)}`,
-					targetDevice
-				};
-			}
-			if (key === "writeForMe") {
-				const text = this.getSnapshotValue(snapshot, "#val-writeForMe-text");
-				if (!text || text.length > 200) return null;
-				const count = Math.max(1, Math.min(5, this.getSnapshotNumber(snapshot, "#val-writeForMe-count", 1)));
-				return {
-					commandPayload: `writeForMe ${encodeURIComponent(text)}|DELIM|${count}`,
-					targetDevice
-				};
-			}
-			if (DIRECT_URL_COMMANDS.has(key)) {
-				const config = INPUT_CAPTURE_COMMANDS[key] || this.getCommandConfig(key);
-				const value = this.getSnapshotValue(snapshot, config?.inputSelector || "");
-				if (!isHttpUrl(value)) return null;
-				return {
-					commandPayload: `${key} ${value}`,
-					targetDevice
-				};
-			}
-			return null;
-		}
-		hasOwnedManualTask(commandKey) {
-			return Array.from(this.manualTasks.values()).some((state) => state?.commandKey === commandKey);
-		}
-		getReusableManualSnapshot(commandKey) {
-			const cached = this.recentManualSnapshots.get(commandKey);
-			if (!cached || Date.now() - Number(cached.at || 0) > MANUAL_SNAPSHOT_REUSE_MS) return null;
-			if (!this.hasOwnedManualTask(commandKey)) return null;
-			return Array.isArray(cached.snapshot) ? cached.snapshot : null;
-		}
-		getManualValidationConfig(commandKey, config) {
-			return INPUT_CAPTURE_COMMANDS[commandKey] || (config?.inputSelector ? config : null);
-		}
-		enqueueManualTask(task, state, attempt = 0) {
-			this.manualTasks.set(task.id, state);
-			if (this.tryQueueLock((queue) => {
-				if (queue.tasks.some((item) => item.id === task.id)) return;
-				task.sequence = this.getNextSequence(queue);
-				queue.tasks.unshift(task);
-			})) {
-				this.processDueQueue();
-				return;
-			}
-			if (attempt < 8) {
-				const retryDelay = Math.min(LOCK_TTL_MS, 150 + attempt * 150);
-				window.setTimeout(() => {
-					if (this.manualTasks.has(task.id)) this.enqueueManualTask(task, state, attempt + 1);
-				}, retryDelay);
-				return;
-			}
-			this.manualTasks.delete(task.id);
-			this.options.notifySite("Auto-send queue is busy. Try again.", "error");
-		}
-		captureManualSend(event) {
-			if (!(event.target instanceof Element)) return;
-			const button = event.target.closest("[data-send]");
-			if (!button || button !== event.target.closest("[data-send]")) return;
-			const commandKey = String(button.dataset.send || "");
-			if (!commandKey) return;
-			if (!this.isDirectCommandSupported(commandKey)) return;
-			const config = this.getCommandConfig(commandKey) || INPUT_CAPTURE_COMMANDS[commandKey] || { key: commandKey };
-			let snapshot = this.getInputSnapshot(button, config);
-			let payload = this.buildCommandPayload(commandKey, snapshot);
-			if (!payload) {
-				const reusableSnapshot = this.getReusableManualSnapshot(commandKey);
-				if (reusableSnapshot) {
-					snapshot = reusableSnapshot;
-					payload = this.buildCommandPayload(commandKey, snapshot);
-				}
-			}
-			if (!payload) {
-				if (this.getManualValidationConfig(commandKey, config)?.inputSelector) {
-					this.options.notifySite("Enter a valid value before queueing send", "error");
-					event.preventDefault();
-					event.stopImmediatePropagation();
-				} else {
-					this.options.notifySite("This command is not supported by queued send yet", "error");
-					event.preventDefault();
-					event.stopImmediatePropagation();
-				}
-				return;
-			}
-			event.preventDefault();
-			event.stopImmediatePropagation();
-			const taskId = createId("manualsend");
-			const pageKey = this.getPageKey();
-			const pageUrl = this.getPageUrl();
-			const pageCode = this.getPageCode();
-			const receiverKey = this.getReceiverKey(pageKey, pageCode);
-			const sendType = this.getSendType(config, "manual");
-			const taskKey = this.buildTaskKey(pageKey, commandKey, sendType);
 			const now = Date.now();
-			const task = {
-				id: taskId,
-				key: taskKey,
-				ownerId: this.instanceId,
-				kind: "manual",
-				commandKey,
-				sendType,
-				category: config?.label || commandKey,
-				profileTitle: this.getProfileTitle(),
-				pageKey,
-				pageUrl,
-				pageCode,
-				receiverKey,
-				source: "manual",
-				commandPayload: payload.commandPayload,
-				targetDevice: payload.targetDevice,
-				snapshot,
-				createdAt: now,
-				dueAt: now,
-				sequence: now,
-				status: TASK_STATUS.PENDING,
-				progressStartedAt: now,
-				progressEndsAt: now
-			};
-			this.recentManualSnapshots.set(commandKey, {
-				snapshot,
-				at: now
-			});
-			this.enqueueManualTask(task, {
-				button,
-				snapshot,
-				commandKey,
-				commandPayload: payload.commandPayload,
-				targetDevice: payload.targetDevice
-			});
+			const task = this.getRunnableTasks(now).find((state) => now >= this.getReceiverNextAllowedAt(state.receiverKey));
+			if (!task) {
+				this.renderManager();
+				return;
+			}
+			this.runAutoTask(task);
+			this.renderManager();
+		}
+		startRunner() {
+			if (this.runnerTimer) return;
+			this.runnerTimer = window.setInterval(() => {
+				this.processDueQueue();
+			}, RUNNER_MS);
 		}
 		getOrCreateControlHost(sendButton) {
 			const parent = sendButton.parentElement;
@@ -2701,8 +1698,7 @@
 			document.querySelectorAll(".ctrlem-db-autosend-interval-input").forEach((input) => {
 				const commandKey = String(input.dataset.command || "");
 				const state = this.states.get(commandKey);
-				const task = state?.taskId ? this.getStoredQueue().tasks.find((item) => item.id === state.taskId) : null;
-				const seconds = String(clampAutoSendInterval(task?.taskIntervalSeconds || this.getIntervalSeconds()));
+				const seconds = String(clampAutoSendInterval(state?.taskIntervalSeconds || this.getIntervalSeconds()));
 				if (input.value !== seconds) input.value = seconds;
 			});
 		}
@@ -2728,6 +1724,25 @@
 			});
 			return input;
 		}
+		restoreCursorSelection(commandKey) {
+			const key = `${this.getPageKey()}::${commandKey}`;
+			if (this.restoredCursorKeys.has(key)) return;
+			const cursor = this.readCursor(commandKey);
+			if (!cursor?.lastSelectedValue && !Number.isFinite(Number(cursor?.lastSelectedIndex))) return;
+			const config = this.getCommandConfig(commandKey);
+			if (!config || config.clickOnly) return;
+			this.ensureTaskCategoryVisible(config, cursor);
+			const items = this.getVisibleItems(config);
+			if (items.length === 0) return;
+			const selectedIndex = Number(cursor.lastSelectedIndex);
+			const item = items.find((candidate) => candidate.value === cursor.lastSelectedValue && (!cursor.categoryId || candidate.categoryId === cursor.categoryId)) || (Number.isFinite(selectedIndex) && selectedIndex >= 0 ? items[selectedIndex % items.length] : null);
+			if (!item) return;
+			const focusState = this.options.captureFocusState?.();
+			if (this.selectItem(config, item, { focusState })) {
+				this.options.restoreFocusState?.(focusState);
+				this.restoredCursorKeys.add(key);
+			}
+		}
 		mountControls() {
 			let changed = false;
 			AUTO_SEND_COMMAND_KEYS.forEach((commandKey) => {
@@ -2735,7 +1750,10 @@
 				if (!config) return;
 				document.querySelectorAll(`[data-send="${commandKey}"]`).forEach((sendButton) => {
 					const parent = this.getOrCreateControlHost(sendButton);
-					if (!parent || parent.querySelector(`.ctrlem-db-auto-send-button[data-command="${commandKey}"]`)) return;
+					if (!parent || parent.querySelector(`.ctrlem-db-auto-send-button[data-command="${commandKey}"]`)) {
+						this.restoreCursorSelection(commandKey);
+						return;
+					}
 					parent.classList.add("ctrlem-db-autosend-group");
 					const intervalInput = this.createIntervalInput(commandKey);
 					const button = createElement("button", {
@@ -2756,12 +1774,11 @@
 						text: "sec"
 					}));
 					parent.appendChild(button);
-					this.adoptCurrentPageTasks();
 					this.setButtonState(button, this.states.has(commandKey));
+					this.restoreCursorSelection(commandKey);
 					changed = true;
 				});
 			});
-			this.adoptCurrentPageTasks();
 			if (changed) this.options.log("info", "Auto-send controls mounted");
 			return changed;
 		}
@@ -2770,95 +1787,44 @@
 				this.setButtonState(button, this.states.has(button.dataset.command));
 			});
 		}
-		isTaskActiveForDisplay(queue, task, now = Date.now()) {
-			if (task.kind === "manual") return this.isOwnerAlive(queue, task.ownerId, now);
-			if (task.kind === "auto") return this.isTaskPageActive(queue, task, now);
-			return false;
+		getEffectiveSendAt(task, now = Date.now()) {
+			return Math.max(Number(task?.dueAt || 0), this.getReceiverNextAllowedAt(task.receiverKey), now);
 		}
-		getReadyDisplayTasks(queue, now = Date.now()) {
-			return this.sortReadyTasks(queue.tasks.filter((task) => Number(task.dueAt || 0) <= now && this.isTaskActiveForDisplay(queue, task, now)));
-		}
-		getEffectiveSendAt(task, queue, readyTasks, now = Date.now()) {
-			if (!this.isTaskActiveForDisplay(queue, task, now)) return Number.MAX_SAFE_INTEGER;
-			if (task?.status === TASK_STATUS.SENDING) return Number(task?.attemptedAt || now);
-			const dueAt = Number(task?.dueAt || 0);
-			const receiverKey = this.getTaskReceiverKey(task);
-			const firstAllowedAt = Math.max(now, dueAt, this.getTaskNextSendAllowedAt(queue, task));
-			if (dueAt > now) return firstAllowedAt;
-			const receiverReadyTasks = readyTasks.filter((item) => this.getTaskReceiverKey(item) === receiverKey);
-			return firstAllowedAt + Math.max(0, receiverReadyTasks.findIndex((item) => item.id === task.id)) * this.getBufferedMinimumRequestIntervalMs();
-		}
-		getOrderedTasks(queue, now = Date.now()) {
-			const readyTasks = this.getReadyDisplayTasks(queue, now);
-			return [...queue.tasks].sort((a, b) => {
-				const aSendAt = this.getEffectiveSendAt(a, queue, readyTasks, now);
-				const bSendAt = this.getEffectiveSendAt(b, queue, readyTasks, now);
+		getOrderedTasks(now = Date.now()) {
+			return Array.from(this.states.values()).sort((a, b) => {
+				const aSendAt = this.getEffectiveSendAt(a, now);
+				const bSendAt = this.getEffectiveSendAt(b, now);
 				if (aSendAt !== bSendAt) return aSendAt - bSendAt;
-				return this.taskSortValue(a) - this.taskSortValue(b);
+				return Number(a.sequence || 0) - Number(b.sequence || 0);
 			});
 		}
-		getDisplayProgressWindow(task, queue, readyTasks, now = Date.now()) {
-			const effectiveAt = this.getEffectiveSendAt(task, queue, readyTasks, now);
-			const progressEndsAt = Math.max(Number(task?.progressEndsAt || 0), Number(task?.dueAt || 0), Number.isFinite(effectiveAt) ? effectiveAt : 0);
-			return {
-				progressStartedAt: Math.min(Math.max(0, Number(task?.progressStartedAt || task?.createdAt || now)), progressEndsAt),
-				progressEndsAt
-			};
-		}
-		getCooldownPercent(task, queue = this.getStoredQueue(), readyTasks = this.getReadyDisplayTasks(queue)) {
-			const now = Date.now();
-			if (!this.isTaskActiveForDisplay(queue, task, now)) return 100;
-			if (task.status === TASK_STATUS.SENDING) return 100;
-			const { progressStartedAt, progressEndsAt } = this.getDisplayProgressWindow(task, queue, readyTasks, now);
+		getCooldownPercent(task, now = Date.now()) {
+			const effectiveAt = this.getEffectiveSendAt(task, now);
+			const progressEndsAt = Math.max(Number(task.progressEndsAt || 0), effectiveAt);
 			if (progressEndsAt <= now) return 100;
+			const progressStartedAt = Math.min(Math.max(0, Number(task.progressStartedAt || task.createdAt || now)), progressEndsAt);
 			const duration = Math.max(1, progressEndsAt - progressStartedAt);
 			return Math.max(0, Math.min(100, (now - progressStartedAt) / duration * 100));
 		}
-		getRemainingText(task, queue = this.getStoredQueue(), readyTasks = this.getReadyDisplayTasks(queue)) {
-			if (task.status === TASK_STATUS.SENDING) return "sending";
-			const now = Date.now();
+		getRemainingText(task, now = Date.now()) {
 			const dueAt = Number(task?.dueAt || 0);
 			const taskRemaining = Math.max(0, dueAt - now);
 			if (taskRemaining > 0) return `${Math.ceil(taskRemaining / 1e3)}s`;
-			if (!this.isTaskActiveForDisplay(queue, task, now)) return "waiting tab";
-			const effectiveAt = this.getEffectiveSendAt(task, queue, readyTasks, now);
-			const rateRemaining = Math.max(0, effectiveAt - now);
-			if (rateRemaining > 0) {
-				const cooldown = this.getReceiverCooldown(queue, this.getTaskReceiverKey(task));
-				if (Number(cooldown.rateLimitBackoffUntil || 0) > now) return `retry:${Math.ceil(rateRemaining / 1e3)}s`;
-				return `rate:${Math.ceil(rateRemaining / 1e3)}s`;
-			}
+			const receiverRemaining = Math.max(0, this.getReceiverNextAllowedAt(task.receiverKey) - now);
+			if (receiverRemaining > 0) return `rate:${Math.ceil(receiverRemaining / 1e3)}s`;
+			if (task.waitReason && task.waitReason !== "ready" && task.waitReason !== "cooldown") return task.waitReason;
 			return "ready";
-		}
-		getTaskPageUrl(task) {
-			return String(task?.pageUrl || task?.pageKey || "").trim();
-		}
-		openTaskPage(task) {
-			const url = this.getTaskPageUrl(task);
-			if (!url) return;
-			const gmOpenInTab = globalThis.GM_openInTab;
-			if (typeof gmOpenInTab === "function") {
-				gmOpenInTab(url, {
-					active: true,
-					insert: true
-				});
-				return;
-			}
-			window.open(url, "_blank", "noopener");
 		}
 		startManagerTimer() {
 			if (this.managerTimer) return;
 			this.managerTimer = window.setInterval(() => {
-				const queue = this.getStoredQueue();
-				const readyTasks = this.getReadyDisplayTasks(queue);
-				const orderedTasks = this.getOrderedTasks(queue);
 				const rowsHost = document.querySelector(`#${MANAGER_ID} .ctrlem-db-autosend-rows`);
-				if (!queue.tasks.length || !rowsHost) {
+				if (!this.states.size || !rowsHost) {
 					window.clearInterval(this.managerTimer);
 					this.managerTimer = 0;
 					return;
 				}
-				this.syncTaskRows(rowsHost, orderedTasks, queue, readyTasks);
+				this.syncTaskRows(rowsHost, this.getOrderedTasks());
 			}, USER_CONFIG.autoSend.managerRefreshMs);
 		}
 		setElementText(element, text) {
@@ -2866,24 +1832,21 @@
 			if (element.textContent !== text) element.textContent = text;
 			if (element.title !== void 0 && element.title !== text) element.title = text;
 		}
-		updateTaskRow(row, task, queue, readyTasks) {
-			row.classList.toggle("is-manual", task.kind === "manual");
-			row.classList.toggle("is-auto", task.kind === "auto");
-			this.setElementText(row.querySelector(".ctrlem-db-autosend-kind"), task.sendType || task.kind);
+		updateTaskRow(row, task) {
+			row.classList.toggle("is-manual", false);
+			row.classList.toggle("is-auto", true);
+			this.setElementText(row.querySelector(".ctrlem-db-autosend-kind"), task.sendType || "Auto");
 			this.setElementText(row.querySelector(".ctrlem-db-autosend-profile"), task.profileTitle || "Current profile");
 			this.setElementText(row.querySelector(".ctrlem-db-autosend-code"), task.pageCode || "Current page");
 			this.setElementText(row.querySelector(".ctrlem-db-autosend-category"), task.category || task.commandKey || "Send");
 			const progress = row.querySelector(".ctrlem-db-autosend-progress");
-			if (progress) progress.style.width = `${this.getCooldownPercent(task, queue, readyTasks)}%`;
+			if (progress) progress.style.width = `${this.getCooldownPercent(task)}%`;
 			const wait = row.querySelector(".ctrlem-db-autosend-wait");
 			if (wait) {
-				const isWaitingTab = !this.isTaskActiveForDisplay(queue, task, Date.now()) && Number(task?.dueAt || 0) <= Date.now();
-				this.setElementText(wait, this.getRemainingText(task, queue, readyTasks));
-				wait.classList.toggle("is-open-tab", isWaitingTab);
-				wait.dataset.openTab = isWaitingTab ? "true" : "false";
-				wait.title = isWaitingTab ? "Open this page to resume auto-send" : wait.textContent;
+				this.setElementText(wait, this.getRemainingText(task));
+				wait.classList.remove("is-open-tab");
+				wait.dataset.openTab = "false";
 			}
-			row.dataset.pageUrl = this.getTaskPageUrl(task);
 		}
 		syncToastOffset(panel = document.getElementById(MANAGER_ID)) {
 			if (!panel) {
@@ -2892,17 +1855,17 @@
 			}
 			document.documentElement.style.setProperty(TOAST_BOTTOM_PROPERTY, `${Math.ceil(panel.getBoundingClientRect().height + 16 + 12)}px`);
 		}
-		createTaskRow(task, queue, readyTasks) {
+		createTaskRow(task) {
 			const stopButton = createElement("button", {
 				className: "ctrlem-db-autosend-mini-button ctrlem-db-autosend-stop",
 				text: "Stop",
-				title: "Stop this queued send",
+				title: "Stop this auto-send",
 				type: "button"
 			});
-			stopButton.addEventListener("click", () => this.requestStopTask(task.id));
+			stopButton.addEventListener("click", () => this.stop(task.commandKey));
 			const row = createElement("div", {
-				className: `ctrlem-db-autosend-row is-${task.kind}`,
-				dataset: { taskId: task.id }
+				className: "ctrlem-db-autosend-row is-auto",
+				dataset: { taskId: task.taskId }
 			}, [
 				createElement("span", { className: "ctrlem-db-autosend-kind" }),
 				createElement("span", { className: "ctrlem-db-autosend-profile" }),
@@ -2912,35 +1875,30 @@
 				createElement("span", { className: "ctrlem-db-autosend-wait" }),
 				stopButton
 			]);
-			const wait = row.querySelector(".ctrlem-db-autosend-wait");
-			wait?.addEventListener("click", (event) => {
-				if (wait.dataset.openTab !== "true") return;
-				event.preventDefault();
-				event.stopPropagation();
-				const currentTask = this.getStoredQueue().tasks.find((item) => item.id === row.dataset.taskId);
-				this.openTaskPage(currentTask || { pageUrl: row.dataset.pageUrl });
-			});
-			this.updateTaskRow(row, task, queue, readyTasks);
+			this.updateTaskRow(row, task);
 			return row;
 		}
-		syncTaskRows(rowsHost, tasks, queue, readyTasks) {
+		syncTaskRows(rowsHost, tasks) {
 			const rowsById = new Map(Array.from(rowsHost.querySelectorAll(".ctrlem-db-autosend-row")).map((row) => [row.dataset.taskId, row]));
 			tasks.forEach((task, index) => {
-				let row = rowsById.get(task.id);
+				let row = rowsById.get(task.taskId);
 				if (row) {
-					rowsById.delete(task.id);
-					this.updateTaskRow(row, task, queue, readyTasks);
-				} else row = this.createTaskRow(task, queue, readyTasks);
+					rowsById.delete(task.taskId);
+					this.updateTaskRow(row, task);
+				} else row = this.createTaskRow(task);
 				const currentAtIndex = rowsHost.children[index];
 				if (row !== currentAtIndex) rowsHost.insertBefore(row, currentAtIndex || null);
 			});
 			rowsById.forEach((row) => row.remove());
 		}
+		requestStopAllTasks() {
+			this.stopAll("stopped all");
+			this.renderManager();
+		}
 		renderManager() {
-			const queue = this.getStoredQueue();
 			const existing = document.getElementById(MANAGER_ID);
 			this.refreshControlButtons();
-			if (!queue.tasks.length) {
+			if (!this.states.size) {
 				existing?.remove();
 				this.syncToastOffset(null);
 				if (this.managerTimer) {
@@ -2949,8 +1907,7 @@
 				}
 				return Boolean(existing);
 			}
-			const readyTasks = this.getReadyDisplayTasks(queue);
-			const orderedTasks = this.getOrderedTasks(queue);
+			const orderedTasks = this.getOrderedTasks();
 			if (existing) {
 				existing.classList.toggle("is-collapsed", this.managerCollapsed);
 				const toggleButton = existing.querySelector(".ctrlem-db-autosend-toggle");
@@ -2960,7 +1917,7 @@
 					toggleButton.setAttribute("aria-expanded", String(!this.managerCollapsed));
 				}
 				const rowsHost = existing.querySelector(".ctrlem-db-autosend-rows") || existing;
-				this.syncTaskRows(rowsHost, orderedTasks, queue, readyTasks);
+				this.syncTaskRows(rowsHost, orderedTasks);
 				this.syncToastOffset(existing);
 				this.startManagerTimer();
 				return false;
@@ -2983,7 +1940,7 @@
 			const stopAllButton = createElement("button", {
 				className: "ctrlem-db-autosend-mini-button ctrlem-db-autosend-stop-all",
 				text: "Stop all",
-				title: "Stop all queued sends",
+				title: "Stop all auto-sends",
 				type: "button"
 			});
 			stopAllButton.addEventListener("click", () => this.requestStopAllTasks());
@@ -2998,7 +1955,7 @@
 				}),
 				toggleButton,
 				stopAllButton
-			]), createElement("div", { className: "ctrlem-db-autosend-rows" }, orderedTasks.map((task) => this.createTaskRow(task, queue, readyTasks)))]);
+			]), createElement("div", { className: "ctrlem-db-autosend-rows" }, orderedTasks.map((task) => this.createTaskRow(task)))]);
 			panel.classList.toggle("is-collapsed", this.managerCollapsed);
 			document.body.appendChild(panel);
 			this.syncToastOffset(panel);
@@ -7548,7 +6505,7 @@
 				row.classList.remove("is-selected");
 			});
 			button.classList.add("is-selected");
-			this.updateCommandPickerUiState(button.dataset.command || "", {
+			if (options.persistUiState !== false) this.updateCommandPickerUiState(button.dataset.command || "", {
 				categoryId: button.dataset.categoryId || list.dataset.categoryId || "",
 				categoryName: button.dataset.category || list.dataset.category || "",
 				value,
@@ -7646,7 +6603,7 @@
 				tile.classList.remove("is-selected");
 			});
 			button.classList.add("is-selected");
-			this.updateCommandPickerUiState(button.dataset.command || "", {
+			if (options.persistUiState !== false) this.updateCommandPickerUiState(button.dataset.command || "", {
 				categoryId: button.dataset.categoryId || picker.dataset.categoryId || "",
 				categoryName: button.dataset.category || picker.dataset.category || "",
 				value: url,
