@@ -1,4 +1,4 @@
-import { IMAGE_PLACEHOLDER_URL, IMAGE_PREVIEW_MAX_ITEMS, RecordType, UI_IDS, USER_CONFIG } from '../domain/constants';
+import { getImagePreviewMaxItems, IMAGE_PLACEHOLDER_URL, RecordType, UI_IDS, USER_CONFIG } from '../domain/constants';
 import { createElement } from './dom';
 
 export function getMediaPickerId(commandKey: string): string {
@@ -114,7 +114,7 @@ export function createMediaPicker(options: any): any {
   previewToggle.addEventListener('change', () => {
     const categoryIndex = Number(select.value) || 0;
     const category = state.categories[categoryIndex];
-    if (!category?.id || category.id === 'default' || category.items.length > IMAGE_PREVIEW_MAX_ITEMS) return;
+    if (!category?.id || category.id === 'default' || category.items.length > getImagePreviewMaxItems()) return;
     category.disablePreviews = !previewToggle.checked;
     renderMediaCategory(categoryIndex);
     onPreviewToggle?.(category.id, previewToggle.checked);
@@ -146,10 +146,10 @@ export function createMediaPicker(options: any): any {
     picker.dataset.category = category?.name || '';
     renameButton.disabled = Boolean(!category || category.id === 'default');
     if (config.type === RecordType.IMAGE) {
-      const isTooLarge = Boolean(category && category.items.length > IMAGE_PREVIEW_MAX_ITEMS);
+      const isTooLarge = Boolean(category && category.items.length > getImagePreviewMaxItems());
       previewToggle.checked = Boolean(category && !category.disablePreviews && !isTooLarge);
       previewToggle.disabled = Boolean(!category || category.id === 'default' || isTooLarge);
-      previewControl.title = isTooLarge ? `Disabled: ${IMAGE_PREVIEW_MAX_ITEMS}+ files` : 'Show previews';
+      previewControl.title = isTooLarge ? `Disabled: ${getImagePreviewMaxItems()}+ files` : 'Show previews';
       previewControl.dataset.tooltip = previewControl.title;
     }
 
@@ -280,7 +280,7 @@ function getImageTileKey(category: any, item: any, itemIndex: number): string {
 }
 
 function shouldRenderImagePreview(category: any): boolean {
-  return !category.disablePreviews && category.items.length <= IMAGE_PREVIEW_MAX_ITEMS;
+  return !category.disablePreviews && category.items.length <= getImagePreviewMaxItems();
 }
 
 function canReuseImageTile(tile: any, category: any, item: any): boolean {

@@ -1,10 +1,10 @@
 import {
-  AUTO_SEND_INTERVAL_DEFAULT,
-  AUTO_SEND_INTERVAL_MAX,
-  AUTO_SEND_INTERVAL_MIN,
-  AUTO_SEND_MINIMUM_REQUEST_INTERVAL_DEFAULT,
-  AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MAX,
-  AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MIN,
+  getAutoSendIntervalDefault,
+  getAutoSendIntervalMax,
+  getAutoSendIntervalMin,
+  getMinimumRequestIntervalDefault,
+  getMinimumRequestIntervalMax,
+  getMinimumRequestIntervalMin,
   NO_PREVIEWS_MARKER,
   RecordType,
   TYPE_ORDER,
@@ -78,14 +78,14 @@ export function formatCategoryContent(rawText: unknown): string {
 
 export function clampAutoSendInterval(value: unknown): number {
   const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed)) return AUTO_SEND_INTERVAL_DEFAULT;
-  return Math.min(AUTO_SEND_INTERVAL_MAX, Math.max(AUTO_SEND_INTERVAL_MIN, parsed));
+  if (!Number.isFinite(parsed)) return getAutoSendIntervalDefault();
+  return Math.min(getAutoSendIntervalMax(), Math.max(getAutoSendIntervalMin(), parsed));
 }
 
 export function clampMinimumRequestInterval(value: unknown): number {
   const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed)) return AUTO_SEND_MINIMUM_REQUEST_INTERVAL_DEFAULT;
-  return Math.min(AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MAX, Math.max(AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MIN, parsed));
+  if (!Number.isFinite(parsed)) return getMinimumRequestIntervalDefault();
+  return Math.min(getMinimumRequestIntervalMax(), Math.max(getMinimumRequestIntervalMin(), parsed));
 }
 
 export function createId(prefix = 'cat'): string {

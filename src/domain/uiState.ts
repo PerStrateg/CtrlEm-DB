@@ -18,6 +18,12 @@ export function createUiState(): any {
       activeTab: MANAGER_TABS.EDITOR,
       selectedCategoryByType: {},
       categoryListScrollTop: 0,
+      settingsSections: {
+        uploader: false,
+        linkCheck: false,
+        constants: false,
+        imgbbInfoDismissed: false,
+      },
     },
     pickers: {},
     uploads: {},
@@ -36,6 +42,9 @@ export function normalizeUiState(rawState: any): any {
   const source = rawState && typeof rawState === 'object' ? rawState : {};
   const sourceVersion = Number(source.version) || 0;
   const manager = source.manager && typeof source.manager === 'object' ? source.manager : {};
+  const settingsSections = manager.settingsSections && typeof manager.settingsSections === 'object'
+    ? manager.settingsSections
+    : {};
   const rawPickers = source.pickers && typeof source.pickers === 'object' ? source.pickers : {};
   const rawUploads = source.uploads && typeof source.uploads === 'object' ? source.uploads : {};
 
@@ -45,6 +54,12 @@ export function normalizeUiState(rawState: any): any {
       activeTab: normalizeManagerTab(manager.activeTab),
       selectedCategoryByType: normalizeStringMap(manager.selectedCategoryByType),
       categoryListScrollTop: Math.max(0, Number(manager.categoryListScrollTop) || 0),
+      settingsSections: {
+        uploader: settingsSections.uploader === true,
+        linkCheck: settingsSections.linkCheck === true,
+        constants: settingsSections.constants === true,
+        imgbbInfoDismissed: settingsSections.imgbbInfoDismissed === true || manager.imgbbInfoDismissed === true,
+      },
     },
     pickers: Object.entries(rawPickers).reduce((result: any, [commandKey, value]) => {
       const picker = value && typeof value === 'object' ? value as any : {};

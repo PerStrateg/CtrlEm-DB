@@ -384,11 +384,13 @@ export const APP_CSS = `
 .ctrlem-db-autosend-group {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .ctrlem-db-autosend-group > [data-send] {
-  flex: 1 1 auto;
+  flex: 1 1 140px;
+  min-width: 120px;
 }
 
 .ctrlem-db-auto-send-button {
@@ -427,6 +429,10 @@ export const APP_CSS = `
   color: var(--text-muted, #666);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.ctrlem-db-autosend-interval-input {
+  flex: 0 0 64px;
 }
 
 #toast-container {
@@ -1216,6 +1222,110 @@ export const APP_CSS = `
   font-weight: 700;
 }
 
+.ctrlem-db-settings-subtitle {
+  margin-top: 4px;
+  color: var(--text-primary, #fff);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.ctrlem-db-settings-spoiler {
+  padding: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-secondary, #1a1a1a) 88%, var(--bg-primary, #0d0d0d));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ctrlem-db-settings-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ctrlem-db-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ctrlem-db-settings-summary:hover,
+.ctrlem-db-settings-summary:focus-visible {
+  background: var(--accent-light, rgba(88, 101, 242, 0.1));
+  outline: none;
+}
+
+.ctrlem-db-settings-spoiler[open] {
+  border-color: color-mix(in srgb, var(--accent-primary, #5865f2) 45%, var(--border-color, #333));
+  background: var(--bg-secondary, #1a1a1a);
+}
+
+.ctrlem-db-settings-spoiler[open] > .ctrlem-db-settings-summary {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ctrlem-db-settings-summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ctrlem-db-settings-description {
+  overflow: hidden;
+  color: var(--text-muted, #666);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctrlem-db-settings-chevron {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  color: var(--text-muted, #666);
+  font-size: 0.72rem;
+  line-height: 1;
+  transition: transform 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ctrlem-db-settings-spoiler[open] .ctrlem-db-settings-chevron {
+  border-color: var(--accent-primary, #5865f2);
+  color: var(--text-primary, #fff);
+  transform: rotate(180deg);
+}
+
+.ctrlem-db-settings-spoiler-body {
+  display: grid;
+  gap: 10px;
+  padding: 0.75rem;
+}
+
+.ctrlem-db-settings-constant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.ctrlem-db-settings-link {
+  color: var(--accent-primary, #5865f2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ctrlem-db-settings-link:hover,
+.ctrlem-db-settings-link:focus-visible {
+  text-decoration: underline;
+}
+
 .ctrlem-db-database-section {
   justify-items: center;
   text-align: center;
@@ -1262,6 +1372,57 @@ export const APP_CSS = `
   color: var(--text-primary, #fff);
   font: inherit;
   font-size: 0.82rem;
+}
+
+.ctrlem-db-imgbb-info-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 0.75rem;
+  border: 1px solid var(--warning, #faa61a);
+  background: var(--bg-secondary, #1a1a1a);
+}
+
+.ctrlem-db-imgbb-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ctrlem-db-imgbb-info-head h2 {
+  margin: 0;
+  color: var(--text-primary, #fff);
+  font-size: 0.95rem;
+}
+
+.ctrlem-db-imgbb-info-copy {
+  margin: 0;
+  color: var(--text-secondary, #b0b0b0);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.ctrlem-db-imgbb-info-close {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-color, #333);
+  border-radius: var(--border-radius, 8px);
+  background: var(--bg-primary, #0d0d0d);
+  color: var(--text-primary, #fff);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ctrlem-db-imgbb-info-close:hover,
+.ctrlem-db-imgbb-info-close:focus-visible {
+  border-color: var(--accent-primary, #5865f2);
+  outline: none;
 }
 
 .ctrlem-db-command-upload {

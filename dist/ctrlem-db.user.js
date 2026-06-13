@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CtrlEm DB by Strateg
 // @namespace    https://discord.com/channels/1465036592262676601/1505167683107160156
-// @version      1.4.4
+// @version      1.4.0
 // @description  Adds DB shortcuts and a DB manager to CtrlEm command pages.
 // @license      MIT
 // @match        https://ctrlem.com/*
@@ -29,10 +29,12 @@
 	var STORAGE_KEY = "ctrlemDbState.v1";
 	var UI_STORAGE_KEY = "ctrlemDbUiState.v1";
 	var UPLOADER_SETTINGS_STORAGE_KEY = "ctrlemDbUploaderSettings.v1";
+	var USER_CONFIG_STORAGE_KEY = "ctrlemDbUserConfig.v1";
 	var AUTO_SEND_SESSION_STORAGE_KEY = "ctrlemDbAutoSendSession.v1";
 	var INPUT_CATEGORY_NAME = "Input";
 	var NO_PREVIEWS_MARKER = "- (no previews)";
-	var USER_CONFIG = Object.freeze({
+	var USER_CONFIG_DEFAULTS = Object.freeze({
+		debug: true,
 		autosaveDelayMs: 500,
 		autoSend: Object.freeze({
 			intervalDefaultSeconds: 5,
@@ -77,14 +79,270 @@
 			countMax: 5
 		})
 	});
-	var AUTOSAVE_DELAY = USER_CONFIG.autosaveDelayMs;
-	var AUTO_SEND_INTERVAL_DEFAULT = USER_CONFIG.autoSend.intervalDefaultSeconds;
-	var AUTO_SEND_INTERVAL_MIN = USER_CONFIG.autoSend.intervalMinSeconds;
-	var AUTO_SEND_INTERVAL_MAX = USER_CONFIG.autoSend.intervalMaxSeconds;
-	var AUTO_SEND_MINIMUM_REQUEST_INTERVAL_DEFAULT = USER_CONFIG.autoSend.minimumRequestIntervalDefaultSeconds;
-	var AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MIN = USER_CONFIG.autoSend.minimumRequestIntervalMinSeconds;
-	var AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MAX = USER_CONFIG.autoSend.minimumRequestIntervalMaxSeconds;
-	var IMAGE_PREVIEW_MAX_ITEMS = USER_CONFIG.imagePreviews.maxItems;
+	var USER_CONFIG_SCHEMA = Object.freeze({
+		debug: Object.freeze({
+			label: "Debug logging",
+			type: "boolean"
+		}),
+		autosaveDelayMs: Object.freeze({
+			label: "Autosave delay (ms)",
+			min: 0,
+			max: 6e4,
+			step: 50
+		}),
+		autoSend: Object.freeze({
+			intervalDefaultSeconds: Object.freeze({
+				label: "Auto-send default interval (sec)",
+				min: 1,
+				max: 86400,
+				step: 1
+			}),
+			intervalMinSeconds: Object.freeze({
+				label: "Auto-send min interval (sec)",
+				min: 1,
+				max: 86400,
+				step: 1
+			}),
+			intervalMaxSeconds: Object.freeze({
+				label: "Auto-send max interval (sec)",
+				min: 1,
+				max: 86400,
+				step: 1
+			}),
+			minimumRequestIntervalDefaultSeconds: Object.freeze({
+				label: "Per-receiver default interval (sec)",
+				min: 1,
+				max: 3600,
+				step: 1
+			}),
+			minimumRequestIntervalMinSeconds: Object.freeze({
+				label: "Per-receiver min interval (sec)",
+				min: 1,
+				max: 3600,
+				step: 1
+			}),
+			minimumRequestIntervalMaxSeconds: Object.freeze({
+				label: "Per-receiver max interval (sec)",
+				min: 1,
+				max: 3600,
+				step: 1
+			}),
+			queueLockTtlMs: Object.freeze({
+				label: "Queue lock TTL (ms)",
+				min: 100,
+				max: 6e4,
+				step: 100
+			}),
+			heartbeatMs: Object.freeze({
+				label: "Heartbeat interval (ms)",
+				min: 100,
+				max: 6e4,
+				step: 100
+			}),
+			heartbeatTimeoutMs: Object.freeze({
+				label: "Heartbeat timeout (ms)",
+				min: 100,
+				max: 12e4,
+				step: 100
+			}),
+			runnerMs: Object.freeze({
+				label: "Runner interval (ms)",
+				min: 50,
+				max: 1e4,
+				step: 50
+			}),
+			managerRefreshMs: Object.freeze({
+				label: "Manager refresh interval (ms)",
+				min: 50,
+				max: 1e4,
+				step: 50
+			})
+		}),
+		imagePreviews: Object.freeze({ maxItems: Object.freeze({
+			label: "Image preview max items",
+			min: 0,
+			max: 5e3,
+			step: 1
+		}) }),
+		ui: Object.freeze({
+			saveDelayMs: Object.freeze({
+				label: "Settings save delay (ms)",
+				min: 0,
+				max: 1e4,
+				step: 10
+			}),
+			scrollSaveDelayMs: Object.freeze({
+				label: "Scroll save delay (ms)",
+				min: 0,
+				max: 1e4,
+				step: 10
+			}),
+			domObserverDelayMs: Object.freeze({
+				label: "DOM observer delay (ms)",
+				min: 0,
+				max: 1e4,
+				step: 10
+			}),
+			modalCloseDelayMs: Object.freeze({
+				label: "Modal close delay (ms)",
+				min: 0,
+				max: 1e4,
+				step: 10
+			}),
+			uploadSessionCloseDelayMs: Object.freeze({
+				label: "Upload session close delay (ms)",
+				min: 0,
+				max: 1e4,
+				step: 10
+			})
+		}),
+		upload: Object.freeze({
+			delayMs: Object.freeze({
+				label: "Upload delay (ms)",
+				min: 0,
+				max: 6e4,
+				step: 100
+			}),
+			ctrlemImageMaxBytes: Object.freeze({
+				label: "CtrlEm image max bytes",
+				min: 1,
+				max: 1024 * 1024 * 1024,
+				step: 1024
+			}),
+			ctrlemSoundMaxBytes: Object.freeze({
+				label: "CtrlEm sound max bytes",
+				min: 1,
+				max: 1024 * 1024 * 1024,
+				step: 1024
+			}),
+			imgbbMaxBytes: Object.freeze({
+				label: "ImgBB max bytes",
+				min: 1,
+				max: 1024 * 1024 * 1024,
+				step: 1024
+			}),
+			vidhostingMaxBytes: Object.freeze({
+				label: "VidHosting max bytes",
+				min: 1,
+				max: 1024 * 1024 * 1024,
+				step: 1024
+			}),
+			externalRequestTimeoutMs: Object.freeze({
+				label: "External request timeout (ms)",
+				min: 1e3,
+				max: 6e5,
+				step: 1e3
+			})
+		}),
+		linkCheck: Object.freeze({
+			timeoutMs: Object.freeze({
+				label: "Link check timeout (ms)",
+				min: 1e3,
+				max: 6e5,
+				step: 1e3
+			}),
+			concurrency: Object.freeze({
+				label: "Link check concurrency",
+				min: 1,
+				max: 20,
+				step: 1
+			})
+		}),
+		imageCache: Object.freeze({
+			fetchTimeoutMs: Object.freeze({
+				label: "Image cache fetch timeout (ms)",
+				min: 1e3,
+				max: 6e5,
+				step: 1e3
+			}),
+			pruneDelayMs: Object.freeze({
+				label: "Image cache prune delay (ms)",
+				min: 0,
+				max: 6e4,
+				step: 100
+			})
+		}),
+		inputCapture: Object.freeze({
+			maxTextLength: Object.freeze({
+				label: "Input capture max text length",
+				min: 1,
+				max: 1e4,
+				step: 1
+			}),
+			countMin: Object.freeze({
+				label: "Input capture min count",
+				min: 0,
+				max: 1e3,
+				step: 1
+			}),
+			countMax: Object.freeze({
+				label: "Input capture max count",
+				min: 0,
+				max: 1e3,
+				step: 1
+			})
+		})
+	});
+	function cloneConfigValue(value) {
+		if (!value || typeof value !== "object") return value;
+		if (Array.isArray(value)) return value.map(cloneConfigValue);
+		return Object.entries(value).reduce((result, [key, item]) => {
+			result[key] = cloneConfigValue(item);
+			return result;
+		}, {});
+	}
+	function normalizeConfigNumber(value, fallback, schema) {
+		const parsed = Number(value);
+		const base = Number.isFinite(parsed) ? parsed : fallback;
+		return Math.min(Number(schema.max), Math.max(Number(schema.min), base));
+	}
+	function normalizeConfigBoolean(value, fallback) {
+		if (value === true || value === "true") return true;
+		if (value === false || value === "false") return false;
+		return fallback;
+	}
+	function normalizeConfigGroup(defaults, schema, overrides) {
+		return Object.entries(schema).reduce((result, [key, itemSchema]) => {
+			const fallback = defaults[key];
+			const override = overrides && typeof overrides === "object" ? overrides[key] : void 0;
+			if (itemSchema && typeof itemSchema === "object" && "label" in itemSchema) result[key] = itemSchema.type === "boolean" ? normalizeConfigBoolean(override, Boolean(fallback)) : normalizeConfigNumber(override, fallback, itemSchema);
+			else result[key] = normalizeConfigGroup(fallback, itemSchema, override);
+			return result;
+		}, {});
+	}
+	function createUserConfig(overrides = {}) {
+		return normalizeConfigGroup(USER_CONFIG_DEFAULTS, USER_CONFIG_SCHEMA, overrides);
+	}
+	var USER_CONFIG = createUserConfig();
+	function applyUserConfig(overrides) {
+		const next = createUserConfig(overrides);
+		Object.keys(USER_CONFIG).forEach((key) => delete USER_CONFIG[key]);
+		Object.assign(USER_CONFIG, next);
+	}
+	function cloneUserConfigDefaults() {
+		return cloneConfigValue(USER_CONFIG_DEFAULTS);
+	}
+	function getAutoSendIntervalDefault() {
+		return USER_CONFIG.autoSend.intervalDefaultSeconds;
+	}
+	function getAutoSendIntervalMin() {
+		return USER_CONFIG.autoSend.intervalMinSeconds;
+	}
+	function getAutoSendIntervalMax() {
+		return Math.max(getAutoSendIntervalMin(), USER_CONFIG.autoSend.intervalMaxSeconds);
+	}
+	function getMinimumRequestIntervalDefault() {
+		return USER_CONFIG.autoSend.minimumRequestIntervalDefaultSeconds;
+	}
+	function getMinimumRequestIntervalMin() {
+		return USER_CONFIG.autoSend.minimumRequestIntervalMinSeconds;
+	}
+	function getMinimumRequestIntervalMax() {
+		return Math.max(getMinimumRequestIntervalMin(), USER_CONFIG.autoSend.minimumRequestIntervalMaxSeconds);
+	}
+	function getImagePreviewMaxItems() {
+		return USER_CONFIG.imagePreviews.maxItems;
+	}
 	var IMAGE_CACHE_DB_NAME = "ctrlem-image-cache";
 	var IMAGE_CACHE_STORE = "images";
 	var IMAGE_PLACEHOLDER_URL = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2264%22%3E%3C/svg%3E";
@@ -129,7 +387,9 @@
 		textPrefix: "ctrlem-db-text",
 		mediaPrefix: "ctrlem-db-media",
 		uploadPrefix: "ctrlem-db-upload",
-		imgbbKeyModal: "ctrlem-db-imgbb-key-modal"
+		imgbbKeyModal: "ctrlem-db-imgbb-key-modal",
+		imgbbSettingsInput: "ctrlem-db-imgbb-settings-input",
+		imgbbInfoPanel: "ctrlem-db-imgbb-info-panel"
 	});
 	var TEXT_COMMANDS = Object.freeze({
 		openPage: Object.freeze({
@@ -339,13 +599,13 @@
 	}
 	function clampAutoSendInterval(value) {
 		const parsed = Number.parseInt(String(value), 10);
-		if (!Number.isFinite(parsed)) return AUTO_SEND_INTERVAL_DEFAULT;
-		return Math.min(AUTO_SEND_INTERVAL_MAX, Math.max(AUTO_SEND_INTERVAL_MIN, parsed));
+		if (!Number.isFinite(parsed)) return getAutoSendIntervalDefault();
+		return Math.min(getAutoSendIntervalMax(), Math.max(getAutoSendIntervalMin(), parsed));
 	}
 	function clampMinimumRequestInterval(value) {
 		const parsed = Number.parseInt(String(value), 10);
-		if (!Number.isFinite(parsed)) return AUTO_SEND_MINIMUM_REQUEST_INTERVAL_DEFAULT;
-		return Math.min(AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MAX, Math.max(AUTO_SEND_MINIMUM_REQUEST_INTERVAL_MIN, parsed));
+		if (!Number.isFinite(parsed)) return getMinimumRequestIntervalDefault();
+		return Math.min(getMinimumRequestIntervalMax(), Math.max(getMinimumRequestIntervalMin(), parsed));
 	}
 	function createId(prefix = "cat") {
 		if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
@@ -654,7 +914,13 @@
 			manager: {
 				activeTab: MANAGER_TABS.EDITOR,
 				selectedCategoryByType: {},
-				categoryListScrollTop: 0
+				categoryListScrollTop: 0,
+				settingsSections: {
+					uploader: false,
+					linkCheck: false,
+					constants: false,
+					imgbbInfoDismissed: false
+				}
 			},
 			pickers: {},
 			uploads: {}
@@ -670,6 +936,7 @@
 		const source = rawState && typeof rawState === "object" ? rawState : {};
 		const sourceVersion = Number(source.version) || 0;
 		const manager = source.manager && typeof source.manager === "object" ? source.manager : {};
+		const settingsSections = manager.settingsSections && typeof manager.settingsSections === "object" ? manager.settingsSections : {};
 		const rawPickers = source.pickers && typeof source.pickers === "object" ? source.pickers : {};
 		const rawUploads = source.uploads && typeof source.uploads === "object" ? source.uploads : {};
 		return {
@@ -677,7 +944,13 @@
 			manager: {
 				activeTab: normalizeManagerTab(manager.activeTab),
 				selectedCategoryByType: normalizeStringMap(manager.selectedCategoryByType),
-				categoryListScrollTop: Math.max(0, Number(manager.categoryListScrollTop) || 0)
+				categoryListScrollTop: Math.max(0, Number(manager.categoryListScrollTop) || 0),
+				settingsSections: {
+					uploader: settingsSections.uploader === true,
+					linkCheck: settingsSections.linkCheck === true,
+					constants: settingsSections.constants === true,
+					imgbbInfoDismissed: settingsSections.imgbbInfoDismissed === true || manager.imgbbInfoDismissed === true
+				}
 			},
 			pickers: Object.entries(rawPickers).reduce((result, [commandKey, value]) => {
 				const picker = value && typeof value === "object" ? value : {};
@@ -835,7 +1108,7 @@
 		previewToggle.addEventListener("change", () => {
 			const categoryIndex = Number(select.value) || 0;
 			const category = state.categories[categoryIndex];
-			if (!category?.id || category.id === "default" || category.items.length > IMAGE_PREVIEW_MAX_ITEMS) return;
+			if (!category?.id || category.id === "default" || category.items.length > getImagePreviewMaxItems()) return;
 			category.disablePreviews = !previewToggle.checked;
 			renderMediaCategory(categoryIndex);
 			onPreviewToggle?.(category.id, previewToggle.checked);
@@ -858,10 +1131,10 @@
 			picker.dataset.category = category?.name || "";
 			renameButton.disabled = Boolean(!category || category.id === "default");
 			if (config.type === RecordType.IMAGE) {
-				const isTooLarge = Boolean(category && category.items.length > IMAGE_PREVIEW_MAX_ITEMS);
+				const isTooLarge = Boolean(category && category.items.length > getImagePreviewMaxItems());
 				previewToggle.checked = Boolean(category && !category.disablePreviews && !isTooLarge);
 				previewToggle.disabled = Boolean(!category || category.id === "default" || isTooLarge);
-				previewControl.title = isTooLarge ? `Disabled: ${IMAGE_PREVIEW_MAX_ITEMS}+ files` : "Show previews";
+				previewControl.title = isTooLarge ? `Disabled: ${getImagePreviewMaxItems()}+ files` : "Show previews";
 				previewControl.dataset.tooltip = previewControl.title;
 			}
 			if (!category || category.items.length === 0) {
@@ -979,7 +1252,7 @@
 		return `${getCategoryKey(category)}|${item?.url || ""}|${itemIndex}`;
 	}
 	function shouldRenderImagePreview(category) {
-		return !category.disablePreviews && category.items.length <= IMAGE_PREVIEW_MAX_ITEMS;
+		return !category.disablePreviews && category.items.length <= getImagePreviewMaxItems();
 	}
 	function canReuseImageTile(tile, category, item) {
 		if (!tile) return false;
@@ -1270,7 +1543,6 @@
 	}
 	var MANAGER_ID = "ctrlem-db-autosend-manager";
 	var TOAST_BOTTOM_PROPERTY = "--ctrlem-db-toast-bottom";
-	var RUNNER_MS = USER_CONFIG.autoSend.runnerMs;
 	var INTERVAL_BUFFER_MS = 100;
 	var AutoSendController = class {
 		options;
@@ -1361,14 +1633,15 @@
 		getStartIndex(config, input, items) {
 			const cursor = this.readCursor(config.key);
 			const uiState = this.options.getPickerUiState?.(config.key) || {};
-			const savedValue = String(cursor?.lastSelectedValue || uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || "").trim();
-			const savedIndex = Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0 ? Number(cursor.nextIndex) : Number(uiState.itemIndex);
-			if (Number.isFinite(savedIndex) && savedIndex >= 0 && items[savedIndex]?.value === savedValue) return savedIndex;
-			if (Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0) return Number(cursor.nextIndex) % items.length;
 			const selectedIndex = items.findIndex((item) => item.isSelected);
 			if (selectedIndex >= 0) return selectedIndex;
+			const savedValue = String(uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || "").trim();
+			const savedIndex = Number(uiState.itemIndex);
+			if (Number.isFinite(savedIndex) && savedIndex >= 0 && items[savedIndex]?.value === savedValue) return savedIndex;
 			const valueIndex = items.findIndex((item) => item.value === savedValue);
-			return valueIndex >= 0 ? valueIndex : 0;
+			if (valueIndex >= 0) return valueIndex;
+			if (Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0) return Number(cursor.nextIndex) % items.length;
+			return 0;
 		}
 		getItemSelector(config) {
 			return config.type === RecordType.IMAGE ? ".ctrlem-db-media-tile" : ".ctrlem-db-row";
@@ -1533,7 +1806,7 @@
 			const taskIntervalSeconds = this.getControlIntervalSeconds(config.key);
 			const startIndex = config.clickOnly ? 0 : this.getStartIndex(config, input, items);
 			const startItem = config.clickOnly ? null : items[startIndex % items.length];
-			const category = cursor?.category || this.getTaskCategory(config, items);
+			const category = startItem?.category || cursor?.category || this.getTaskCategory(config, items);
 			const state = {
 				taskId: createId("autosend"),
 				commandKey: config.key,
@@ -1541,12 +1814,12 @@
 				button,
 				sendType: this.getSendType(config),
 				category,
-				categoryId: cursor?.categoryId || startItem?.categoryId || "",
+				categoryId: startItem?.categoryId || cursor?.categoryId || "",
 				profileTitle: this.getProfileTitle(),
 				pageCode: this.getPageCode(),
 				receiverKey: this.getReceiverKey(),
 				taskIntervalSeconds,
-				nextIndex: Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0 ? Number(cursor.nextIndex) : startIndex,
+				nextIndex: startIndex,
 				itemValue: startItem?.value || cursor?.lastSelectedValue || "",
 				itemIndex: Number.isFinite(Number(startItem?.index)) ? Number(startItem.index) : startIndex,
 				dueAt: now,
@@ -1683,7 +1956,14 @@
 			if (this.runnerTimer) return;
 			this.runnerTimer = window.setInterval(() => {
 				this.processDueQueue();
-			}, RUNNER_MS);
+			}, USER_CONFIG.autoSend.runnerMs);
+		}
+		restartRunner() {
+			if (this.runnerTimer) {
+				window.clearInterval(this.runnerTimer);
+				this.runnerTimer = 0;
+			}
+			this.startRunner();
 		}
 		getOrCreateControlHost(sendButton) {
 			const parent = sendButton.parentElement;
@@ -1708,8 +1988,8 @@
 				type: "number",
 				value: String(this.getIntervalSeconds()),
 				attrs: {
-					min: String(AUTO_SEND_INTERVAL_MIN),
-					max: String(AUTO_SEND_INTERVAL_MAX),
+					min: String(getAutoSendIntervalMin()),
+					max: String(getAutoSendIntervalMax()),
 					step: "1",
 					"aria-label": "Auto-send interval in seconds"
 				},
@@ -1992,7 +2272,7 @@
 		return true;
 	}
 	function log(level, message, details) {
-		if (!CONFIG.debug && level !== "warn" && level !== "error") return;
+		if (!USER_CONFIG.debug && level !== "warn" && level !== "error") return;
 		const target = console[level] || console.log;
 		if (details === void 0) {
 			target.call(console, LOG_PREFIX, message);
@@ -2168,8 +2448,6 @@
 			};
 		}
 	};
-	var IMGBB_MAX_BYTES = USER_CONFIG.upload.imgbbMaxBytes;
-	var VIDHOSTING_MAX_BYTES = USER_CONFIG.upload.vidhostingMaxBytes;
 	function getErrorMessage$1(error) {
 		return error?.message || String(error || "Unknown error");
 	}
@@ -2183,6 +2461,9 @@
 	function createHttpError(service, response, fallback = "Upload failed") {
 		const body = response.text.trim();
 		return new Error(`${service}: ${body || `${fallback} (HTTP ${response.status})`}`);
+	}
+	function formatMegabytes$1(bytes) {
+		return `${Math.round(bytes / 1024 / 1024)} MB`;
 	}
 	async function postFormData(url, formData) {
 		const gmXmlHttpRequest = globalThis.GM_xmlhttpRequest;
@@ -2235,7 +2516,7 @@
 	async function uploadImageToImgBB(file, apiKey) {
 		const key = String(apiKey || "").trim();
 		if (!key) throw new Error("ImgBB API key is required");
-		if (file.size > IMGBB_MAX_BYTES) throw new Error(`${file.name}: ImgBB limit is 32 MB`);
+		if (file.size > USER_CONFIG.upload.imgbbMaxBytes) throw new Error(`${file.name}: ImgBB limit is ${formatMegabytes$1(USER_CONFIG.upload.imgbbMaxBytes)}`);
 		const endpoint = new URL("https://api.imgbb.com/1/upload");
 		endpoint.searchParams.set("key", key);
 		const formData = new FormData();
@@ -2272,7 +2553,7 @@
 		return url;
 	}
 	async function uploadVideoToVidHosting(file) {
-		if (file.size > VIDHOSTING_MAX_BYTES) throw new Error(`${file.name}: VidHosting limit is 100 MB`);
+		if (file.size > USER_CONFIG.upload.vidhostingMaxBytes) throw new Error(`${file.name}: VidHosting limit is ${formatMegabytes$1(USER_CONFIG.upload.vidhostingMaxBytes)}`);
 		const formData = new FormData();
 		formData.append("file", file, file.name);
 		console.log("[CtrlEm DB] VidHosting upload starting", {
@@ -2620,8 +2901,6 @@
 			this.pruneTimer = window.setTimeout(() => this.prune(), USER_CONFIG.imageCache.pruneDelayMs);
 		}
 	};
-	var CHECK_TIMEOUT_MS = USER_CONFIG.linkCheck.timeoutMs;
-	var CHECK_CONCURRENCY = USER_CONFIG.linkCheck.concurrency;
 	function getAcceptHeader(type) {
 		if (type === RecordType.IMAGE) return "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 		if (type === RecordType.SOUND) return "audio/*,*/*;q=0.8";
@@ -2674,7 +2953,7 @@
 				method,
 				url,
 				headers,
-				timeout: CHECK_TIMEOUT_MS,
+				timeout: USER_CONFIG.linkCheck.timeoutMs,
 				responseType: method === "GET" ? "arraybuffer" : void 0,
 				onload: (response) => resolve({
 					status: normalizeStatus(response.status),
@@ -2809,7 +3088,7 @@
 				});
 			}
 		};
-		const workers = Array.from({ length: Math.min(CHECK_CONCURRENCY, httpEntries.length) }, runWorker);
+		const workers = Array.from({ length: Math.min(USER_CONFIG.linkCheck.concurrency, httpEntries.length) }, runWorker);
 		await Promise.all(workers);
 		broken.sort((a, b) => a.index - b.index);
 		return {
@@ -2857,6 +3136,12 @@
 	}
 	async function writeStoredUploaderSettings(settings) {
 		await writeStoredJson(UPLOADER_SETTINGS_STORAGE_KEY, settings);
+	}
+	async function readStoredUserConfig() {
+		return readStoredJson(USER_CONFIG_STORAGE_KEY, "user config");
+	}
+	async function writeStoredUserConfig(config) {
+		await writeStoredJson(USER_CONFIG_STORAGE_KEY, config);
 	}
 	var dragCategoryId = null;
 	function renderDbManager(root, viewModel, actions) {
@@ -3201,10 +3486,6 @@
 		});
 		return createElement("div", { className: "ctrlem-db-link-check-tools" }, [
 			createElement("div", {
-				className: "ctrlem-db-settings-title",
-				text: "Check broken links"
-			}),
-			createElement("div", {
 				className: "ctrlem-db-link-check-copy",
 				text: "Checking many links can take some time. You can check all media or a specific category."
 			}),
@@ -3225,6 +3506,63 @@
 			]),
 			resultTextarea
 		]);
+	}
+	function createSettingsSpoiler(key, title, viewModel, actions, children) {
+		const details = createElement("details", {
+			className: "ctrlem-db-settings-section ctrlem-db-settings-spoiler",
+			attrs: viewModel.uiState?.settingsSections?.[key] === true ? { open: "" } : {},
+			dataset: { section: key }
+		}, [createElement("summary", { className: "ctrlem-db-settings-summary" }, [createElement("span", { className: "ctrlem-db-settings-summary-copy" }, [createElement("span", {
+			className: "ctrlem-db-settings-title",
+			text: title
+		}), createElement("span", {
+			className: "ctrlem-db-settings-description",
+			text: {
+				uploader: "API keys and upload behavior",
+				linkCheck: "Scan media links and clean broken entries",
+				constants: "Advanced timing and limits"
+			}[key] || ""
+		})]), createElement("span", {
+			className: "ctrlem-db-settings-chevron",
+			text: "▾",
+			attrs: { "aria-hidden": "true" }
+		})]), createElement("div", { className: "ctrlem-db-settings-spoiler-body" }, children)]);
+		details.addEventListener("toggle", () => actions.setSettingsSectionOpen(key, details.open));
+		return details;
+	}
+	function getPathValue(source, path) {
+		return path.split(".").reduce((value, key) => value?.[key], source);
+	}
+	function createConstantsFields(schema, values, actions, prefix = "") {
+		return Object.entries(schema || {}).flatMap(([key, itemSchema]) => {
+			const path = prefix ? `${prefix}.${key}` : key;
+			if (itemSchema && typeof itemSchema === "object" && "label" in itemSchema) {
+				if (itemSchema.type === "boolean") {
+					const input = createElement("input", {
+						type: "checkbox",
+						checked: getPathValue(values, path) === true
+					});
+					input.addEventListener("change", () => actions.setUserConfigValue(path, input.checked));
+					return [createElement("label", { className: "ctrlem-db-settings-field ctrlem-db-settings-check" }, [input, createElement("span", { text: itemSchema.label })])];
+				}
+				const input = createElement("input", {
+					className: "ctrlem-db-settings-input",
+					type: "number",
+					value: String(getPathValue(values, path)),
+					attrs: {
+						min: String(itemSchema.min),
+						max: String(itemSchema.max),
+						step: String(itemSchema.step || 1)
+					}
+				});
+				input.addEventListener("change", () => actions.setUserConfigValue(path, input.value));
+				return [createElement("label", { className: "ctrlem-db-settings-field" }, [createElement("span", { text: itemSchema.label }), input])];
+			}
+			return [createElement("div", {
+				className: "ctrlem-db-settings-subtitle",
+				text: key
+			}), ...createConstantsFields(itemSchema, values, actions, path)];
+		});
 	}
 	function createInfoPanel(viewModel) {
 		const profileTitle = String(viewModel.profileTitle || "").trim();
@@ -3282,6 +3620,7 @@
 		importAllButton.addEventListener("click", () => importAllInput.click());
 		restoreDefaultsButton.addEventListener("click", actions.restoreDefaults);
 		const imgbbApiKey = createElement("input", {
+			id: UI_IDS.imgbbSettingsInput,
 			className: "ctrlem-db-settings-input",
 			type: "password",
 			value: viewModel.uploaderSettings?.imgbbApiKey || "",
@@ -3313,21 +3652,16 @@
 		autoDownloadSendOrDeleteImages.addEventListener("change", () => {
 			actions.setUploaderSetting("autoDownloadSendOrDeleteImages", autoDownloadSendOrDeleteImages.checked);
 		});
+		const restoreConstantsButton = createElement("button", {
+			className: "btn btn-sm btn-secondary",
+			text: "Restore constants defaults",
+			type: "button"
+		});
+		restoreConstantsButton.addEventListener("click", actions.restoreUserConfigDefaults);
 		return createElement("div", {
 			className: "ctrlem-db-tab-panel ctrlem-db-settings-panel",
 			attrs: { role: "tabpanel" }
 		}, [
-			createElement("div", { className: "ctrlem-db-settings-section" }, [
-				createElement("div", {
-					className: "ctrlem-db-settings-title",
-					text: "Uploader settings"
-				}),
-				createElement("label", { className: "ctrlem-db-settings-field" }, [createElement("span", { text: "ImgBB API key" }), imgbbApiKey]),
-				createElement("label", { className: "ctrlem-db-settings-field" }, [createElement("span", { text: "Catbox userhash (optional)" }), catboxUserhash]),
-				createElement("label", { className: "ctrlem-db-settings-field ctrlem-db-settings-check" }, [hideCtrlEmUploader, createElement("span", { text: "Hide CtrlEm uploader box" })]),
-				createElement("label", { className: "ctrlem-db-settings-field ctrlem-db-settings-check" }, [autoDownloadSendOrDeleteImages, createElement("span", { text: "Auto-download Send or Delete images" })])
-			]),
-			createElement("div", { className: "ctrlem-db-settings-section" }, [createBrokenLinkTools(viewModel, actions)]),
 			createElement("div", { className: "ctrlem-db-settings-section ctrlem-db-database-section" }, [createElement("div", {
 				className: "ctrlem-db-settings-title",
 				text: "Database"
@@ -3336,7 +3670,28 @@
 				importAllButton,
 				restoreDefaultsButton,
 				importAllInput
-			])])
+			])]),
+			createSettingsSpoiler("uploader", "Uploader settings", viewModel, actions, [
+				createElement("p", {
+					className: "ctrlem-db-info-copy",
+					text: "Open ImgBB API and click Get API key. Copy the key and paste it here before using ImgBB uploads."
+				}),
+				createElement("a", {
+					className: "ctrlem-db-settings-link",
+					text: "ImgBB API",
+					attrs: {
+						href: "https://api.imgbb.com/",
+						target: "_blank",
+						rel: "noopener noreferrer"
+					}
+				}),
+				createElement("label", { className: "ctrlem-db-settings-field" }, [createElement("span", { text: "ImgBB API key" }), imgbbApiKey]),
+				createElement("label", { className: "ctrlem-db-settings-field" }, [createElement("span", { text: "Catbox userhash (optional)" }), catboxUserhash]),
+				createElement("label", { className: "ctrlem-db-settings-field ctrlem-db-settings-check" }, [hideCtrlEmUploader, createElement("span", { text: "Hide CtrlEm uploader box" })]),
+				createElement("label", { className: "ctrlem-db-settings-field ctrlem-db-settings-check" }, [autoDownloadSendOrDeleteImages, createElement("span", { text: "Auto-download Send or Delete images" })])
+			]),
+			createSettingsSpoiler("linkCheck", "Check broken links", viewModel, actions, [createBrokenLinkTools(viewModel, actions)]),
+			createSettingsSpoiler("constants", "Constants", viewModel, actions, [createElement("div", { className: "ctrlem-db-settings-constant-grid" }, createConstantsFields(viewModel.userConfigSchema, viewModel.userConfig, actions)), restoreConstantsButton])
 		]);
 	}
 	var APP_CSS = `
@@ -3723,11 +4078,13 @@
 .ctrlem-db-autosend-group {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .ctrlem-db-autosend-group > [data-send] {
-  flex: 1 1 auto;
+  flex: 1 1 140px;
+  min-width: 120px;
 }
 
 .ctrlem-db-auto-send-button {
@@ -3766,6 +4123,10 @@
   color: var(--text-muted, #666);
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.ctrlem-db-autosend-interval-input {
+  flex: 0 0 64px;
 }
 
 #toast-container {
@@ -4555,6 +4916,110 @@
   font-weight: 700;
 }
 
+.ctrlem-db-settings-subtitle {
+  margin-top: 4px;
+  color: var(--text-primary, #fff);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.ctrlem-db-settings-spoiler {
+  padding: 0;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-secondary, #1a1a1a) 88%, var(--bg-primary, #0d0d0d));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.ctrlem-db-settings-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ctrlem-db-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ctrlem-db-settings-summary:hover,
+.ctrlem-db-settings-summary:focus-visible {
+  background: var(--accent-light, rgba(88, 101, 242, 0.1));
+  outline: none;
+}
+
+.ctrlem-db-settings-spoiler[open] {
+  border-color: color-mix(in srgb, var(--accent-primary, #5865f2) 45%, var(--border-color, #333));
+  background: var(--bg-secondary, #1a1a1a);
+}
+
+.ctrlem-db-settings-spoiler[open] > .ctrlem-db-settings-summary {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ctrlem-db-settings-summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ctrlem-db-settings-description {
+  overflow: hidden;
+  color: var(--text-muted, #666);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctrlem-db-settings-chevron {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  color: var(--text-muted, #666);
+  font-size: 0.72rem;
+  line-height: 1;
+  transition: transform 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.ctrlem-db-settings-spoiler[open] .ctrlem-db-settings-chevron {
+  border-color: var(--accent-primary, #5865f2);
+  color: var(--text-primary, #fff);
+  transform: rotate(180deg);
+}
+
+.ctrlem-db-settings-spoiler-body {
+  display: grid;
+  gap: 10px;
+  padding: 0.75rem;
+}
+
+.ctrlem-db-settings-constant-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.ctrlem-db-settings-link {
+  color: var(--accent-primary, #5865f2);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ctrlem-db-settings-link:hover,
+.ctrlem-db-settings-link:focus-visible {
+  text-decoration: underline;
+}
+
 .ctrlem-db-database-section {
   justify-items: center;
   text-align: center;
@@ -4601,6 +5066,57 @@
   color: var(--text-primary, #fff);
   font: inherit;
   font-size: 0.82rem;
+}
+
+.ctrlem-db-imgbb-info-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 0.75rem;
+  border: 1px solid var(--warning, #faa61a);
+  background: var(--bg-secondary, #1a1a1a);
+}
+
+.ctrlem-db-imgbb-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ctrlem-db-imgbb-info-head h2 {
+  margin: 0;
+  color: var(--text-primary, #fff);
+  font-size: 0.95rem;
+}
+
+.ctrlem-db-imgbb-info-copy {
+  margin: 0;
+  color: var(--text-secondary, #b0b0b0);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.ctrlem-db-imgbb-info-close {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-color, #333);
+  border-radius: var(--border-radius, 8px);
+  background: var(--bg-primary, #0d0d0d);
+  color: var(--text-primary, #fff);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ctrlem-db-imgbb-info-close:hover,
+.ctrlem-db-imgbb-info-close:focus-visible {
+  border-color: var(--accent-primary, #5865f2);
+  outline: none;
 }
 
 .ctrlem-db-command-upload {
@@ -5409,9 +5925,6 @@
 		UPLOADED: "Uploaded",
 		FAILED: "Failed"
 	});
-	var UPLOAD_DELAY_MS = USER_CONFIG.upload.delayMs;
-	var CTRLEM_IMAGE_MAX_BYTES = USER_CONFIG.upload.ctrlemImageMaxBytes;
-	var CTRLEM_SOUND_MAX_BYTES = USER_CONFIG.upload.ctrlemSoundMaxBytes;
 	var CTRLEM_IMAGE_TYPES = new Set([
 		"image/jpeg",
 		"image/png",
@@ -5441,6 +5954,9 @@
 		if (config.type === RecordType.VIDEO) return "video";
 		return "file";
 	}
+	function formatMegabytes(bytes) {
+		return `${Math.round(bytes / 1024 / 1024)}MB`;
+	}
 	function getAccept(config, tool) {
 		if (tool === "imgbb") return "image/jpeg,image/png,image/gif,image/webp";
 		if (tool === "vidhosting") return "video/*";
@@ -5456,9 +5972,9 @@
 		return true;
 	}
 	function getToolNote(config, tool) {
-		if (tool === "ctrlem" && config.type === RecordType.IMAGE) return "Max 5MB - JPG, PNG, GIF, WebP";
-		if (tool === "ctrlem" && config.type === RecordType.SOUND) return "Max 15MB - MP3, WAV, OGG, M4A";
-		if (tool === "imgbb") return "Max 32MB - JPG, PNG, GIF, WebP - Requires key";
+		if (tool === "ctrlem" && config.type === RecordType.IMAGE) return `Max ${formatMegabytes(USER_CONFIG.upload.ctrlemImageMaxBytes)} - JPG, PNG, GIF, WebP`;
+		if (tool === "ctrlem" && config.type === RecordType.SOUND) return `Max ${formatMegabytes(USER_CONFIG.upload.ctrlemSoundMaxBytes)} - MP3, WAV, OGG, M4A`;
+		if (tool === "imgbb") return `Max ${formatMegabytes(USER_CONFIG.upload.imgbbMaxBytes)} - JPG, PNG, GIF, WebP - Requires key`;
 		if (tool === "catbox") return config.type === RecordType.SOUND ? "Audio files - Optional userhash in Settings" : "Video files - Optional userhash in Settings";
 		if (tool === "vidhosting") return "Video files";
 		return "";
@@ -5474,11 +5990,11 @@
 	}
 	function getCtrlEmValidationError(config, file) {
 		if (config.type === RecordType.IMAGE) {
-			if (file.size > CTRLEM_IMAGE_MAX_BYTES) return "Image must be under 5MB.";
+			if (file.size > USER_CONFIG.upload.ctrlemImageMaxBytes) return `Image must be under ${formatMegabytes(USER_CONFIG.upload.ctrlemImageMaxBytes)}.`;
 			if (!CTRLEM_IMAGE_TYPES.has(file.type)) return "Only JPG, PNG, GIF, and WebP images are allowed.";
 		}
 		if (config.type === RecordType.SOUND) {
-			if (file.size > CTRLEM_SOUND_MAX_BYTES) return "Audio must be under 15MB.";
+			if (file.size > USER_CONFIG.upload.ctrlemSoundMaxBytes) return `Audio must be under ${formatMegabytes(USER_CONFIG.upload.ctrlemSoundMaxBytes)}.`;
 			if (!CTRLEM_SOUND_TYPES.has(file.type)) return "Only MP3, WAV, OGG, M4A, FLAC audio allowed.";
 		}
 		return "";
@@ -5766,8 +6282,8 @@
 			for (let index = 0; index < session.items.length; index += 1) {
 				const item = session.items[index];
 				if (index > 0) {
-					session.setStatus(`Waiting ${UPLOAD_DELAY_MS / 1e3}s before next upload...`);
-					await delay(UPLOAD_DELAY_MS);
+					session.setStatus(`Waiting ${USER_CONFIG.upload.delayMs / 1e3}s before next upload...`);
+					await delay(USER_CONFIG.upload.delayMs);
 				}
 				session.setItemStatus(item, STATUS.UPLOADING);
 				const startTime = Date.now();
@@ -6150,6 +6666,8 @@
 		saveTimer = 0;
 		uiSaveTimer = 0;
 		uploaderSettingsSaveTimer = 0;
+		userConfigSaveTimer = 0;
+		imgbbInfoToastShown = false;
 		mediaRenderToken = 0;
 		sendOrDeleteDownloadArms = [];
 		pendingMediaMounts = new Set();
@@ -6172,7 +6690,7 @@
 		uploaderSettings = {
 			imgbbApiKey: "",
 			catboxUserhash: "",
-			hideCtrlEmUploader: false,
+			hideCtrlEmUploader: true,
 			autoDownloadSendOrDeleteImages: true
 		};
 		managerSelection = {
@@ -6217,6 +6735,11 @@
 			setActiveTab: (tab) => this.setActiveTab(tab),
 			setCategoryListScroll: (scrollTop) => this.setCategoryListScroll(scrollTop),
 			setUploaderSetting: (name, value) => this.setUploaderSetting(name, value),
+			setUserConfigValue: (path, value) => this.setUserConfigValue(path, value),
+			restoreUserConfigDefaults: () => this.restoreUserConfigDefaults(),
+			setSettingsSectionOpen: (section, open) => this.setSettingsSectionOpen(section, open),
+			openImgBBSettings: () => this.openImgBBSettings(),
+			dismissImgBBInfo: () => this.dismissImgBBInfo(),
 			getUploaderSettings: () => this.uploaderSettings,
 			getUploadTarget: (config) => this.getUploadTarget(config),
 			getUploadCategories: (config) => this.getUploadCategories(config),
@@ -6239,11 +6762,14 @@
 			this.startObserver();
 		}
 		async loadDbState() {
-			const [stored, storedUi, storedUploaderSettings] = await Promise.all([
+			const [stored, storedUi, storedUploaderSettings, storedUserConfig] = await Promise.all([
 				readStoredState(),
 				readStoredUiState(),
-				readStoredUploaderSettings()
+				readStoredUploaderSettings(),
+				readStoredUserConfig()
 			]);
+			applyUserConfig(storedUserConfig || {});
+			this.autoSend.restartRunner();
 			this.dbState = normalizeDbState(stored || createSeedState());
 			this.uiState = normalizeUiState(storedUi || createUiState());
 			this.restoreUploaderSettings(storedUploaderSettings);
@@ -6256,7 +6782,7 @@
 			Object.assign(this.uploaderSettings, {
 				imgbbApiKey: String(source.imgbbApiKey || ""),
 				catboxUserhash: String(source.catboxUserhash || ""),
-				hideCtrlEmUploader: source.hideCtrlEmUploader === true,
+				hideCtrlEmUploader: Object.prototype.hasOwnProperty.call(source, "hideCtrlEmUploader") ? source.hideCtrlEmUploader === true : true,
 				autoDownloadSendOrDeleteImages: source.autoDownloadSendOrDeleteImages !== false
 			});
 		}
@@ -6287,6 +6813,17 @@
 			this.uploaderSettingsSaveTimer = window.setTimeout(() => {
 				writeStoredUploaderSettings(clonePlain(this.uploaderSettings)).catch((error) => {
 					log("warn", "Failed to save uploader settings", {
+						reason,
+						message: error?.message || String(error)
+					});
+				});
+			}, USER_CONFIG.ui.saveDelayMs);
+		}
+		scheduleUserConfigSave(reason = "user config changed") {
+			window.clearTimeout(this.userConfigSaveTimer);
+			this.userConfigSaveTimer = window.setTimeout(() => {
+				writeStoredUserConfig(clonePlain(USER_CONFIG)).catch((error) => {
+					log("warn", "Failed to save user config", {
 						reason,
 						message: error?.message || String(error)
 					});
@@ -6351,6 +6888,8 @@
 				selectedCategory,
 				profileTitle: this.getProfileTitle(),
 				uploaderSettings: this.uploaderSettings,
+				userConfig: USER_CONFIG,
+				userConfigSchema: USER_CONFIG_SCHEMA,
 				uiState: this.uiState.manager,
 				linkCheck: this.linkCheckState,
 				linkCheckCategories: LINK_CHECK_MEDIA_TYPES.reduce((result, type) => {
@@ -6410,7 +6949,7 @@
 				}
 				this.renderCategoryList();
 				this.refreshDbConsumers(reason);
-			}, AUTOSAVE_DELAY);
+			}, USER_CONFIG.autosaveDelayMs);
 		}
 		refreshDbConsumers(reason = "refresh") {
 			this.mediaRenderToken += 1;
@@ -6768,6 +7307,55 @@
 		mountUploadPanels() {
 			return Object.values(UPLOAD_COMMANDS).map((config) => this.mountUploadPanel(config)).some(Boolean);
 		}
+		refreshUploadPanels() {
+			Object.values(UPLOAD_COMMANDS).forEach((config) => {
+				document.getElementById(getUploadPanelId(config.key))?.remove();
+			});
+			this.mountUploadPanels();
+		}
+		mountImgBBInfoPanel() {
+			const existing = document.getElementById(UI_IDS.imgbbInfoPanel);
+			const hasKey = Boolean(String(this.uploaderSettings.imgbbApiKey || "").trim());
+			const dismissed = this.uiState.manager.settingsSections?.imgbbInfoDismissed === true;
+			if (hasKey || dismissed) {
+				existing?.remove();
+				return Boolean(existing);
+			}
+			if (existing) return false;
+			const resultsPanel = document.querySelector(CONFIG.selectors.resultsPanel);
+			if (!resultsPanel?.parentElement) return false;
+			const settingsButton = createElement("button", {
+				className: "btn btn-sm btn-secondary ctrlem-db-imgbb-info-settings",
+				text: "Open settings",
+				type: "button"
+			});
+			settingsButton.addEventListener("click", () => this.openImgBBSettings());
+			const closeButton = createElement("button", {
+				className: "ctrlem-db-imgbb-info-close",
+				text: "x",
+				title: "Close",
+				type: "button",
+				attrs: { "aria-label": "Close ImgBB info" }
+			});
+			closeButton.addEventListener("click", () => this.dismissImgBBInfo());
+			const panel = createElement("div", {
+				id: UI_IDS.imgbbInfoPanel,
+				className: "panel ctrlem-db-imgbb-info-panel"
+			}, [
+				createElement("div", { className: "ctrlem-db-imgbb-info-head" }, [createElement("h2", { text: "Info" }), closeButton]),
+				createElement("p", {
+					className: "ctrlem-db-imgbb-info-copy",
+					text: "Add an ImgBB API key to enable ImgBB uploads."
+				}),
+				settingsButton
+			]);
+			resultsPanel.insertAdjacentElement("beforebegin", panel);
+			if (!this.imgbbInfoToastShown) {
+				this.imgbbInfoToastShown = true;
+				this.site.notify("Add an ImgBB API key to enable ImgBB uploads.", "warning");
+			}
+			return true;
+		}
 		getSendOrDeleteDownloadFilename(src) {
 			const timestamp = new Date().toISOString().slice(0, 19).replace("T", "-").replace(/:/g, "-");
 			let extension = "png";
@@ -6992,6 +7580,76 @@
 			this.uploaderSettings[name] = typeof this.uploaderSettings[name] === "boolean" ? value === true || value === "true" : String(value || "");
 			if (name === "autoDownloadSendOrDeleteImages" && this.uploaderSettings[name] === false) this.sendOrDeleteDownloadArms = [];
 			this.scheduleUploaderSettingsSave();
+			if (name === "imgbbApiKey") this.mountImgBBInfoPanel();
+			if (name === "hideCtrlEmUploader") this.refreshUploadPanels();
+		}
+		setUserConfigValue(path, value) {
+			const keys = String(path || "").split(".").filter(Boolean);
+			if (!keys.length) return;
+			let schema = USER_CONFIG_SCHEMA;
+			let target = USER_CONFIG;
+			for (let index = 0; index < keys.length - 1; index += 1) {
+				schema = schema?.[keys[index]];
+				target = target?.[keys[index]];
+				if (!schema || !target) return;
+			}
+			const key = keys[keys.length - 1];
+			const fieldSchema = schema?.[key];
+			if (!fieldSchema || !("label" in fieldSchema)) return;
+			if (fieldSchema.type === "boolean") {
+				target[key] = value === true || value === "true";
+				this.scheduleUserConfigSave();
+				this.renderDbManager();
+				return;
+			}
+			const parsed = Number(value);
+			const fallback = Number(target[key]);
+			target[key] = Math.min(Number(fieldSchema.max), Math.max(Number(fieldSchema.min), Number.isFinite(parsed) ? parsed : fallback));
+			this.scheduleUserConfigSave();
+			this.renderDbManager();
+			this.autoSend.restartRunner();
+			this.autoSend.syncIntervalInputs();
+			this.refreshDbConsumers("user config changed");
+		}
+		restoreUserConfigDefaults() {
+			applyUserConfig(cloneUserConfigDefaults());
+			this.scheduleUserConfigSave("user config defaults restored");
+			this.renderDbManager();
+			this.autoSend.restartRunner();
+			this.autoSend.syncIntervalInputs();
+			this.refreshDbConsumers("user config defaults restored");
+			setManagerStatus("Constants restored to defaults", "success");
+		}
+		setSettingsSectionOpen(section, open) {
+			const sections = this.uiState.manager.settingsSections || {};
+			if (!Object.prototype.hasOwnProperty.call(sections, section)) return;
+			sections[section] = open === true;
+			this.uiState.manager.settingsSections = sections;
+			this.scheduleUiStateSave("settings section toggled");
+		}
+		openImgBBSettings() {
+			this.uiState.manager.activeTab = "settings";
+			this.uiState.manager.settingsSections = {
+				...this.uiState.manager.settingsSections || {},
+				uploader: true,
+				imgbbInfoDismissed: false
+			};
+			this.scheduleUiStateSave("ImgBB settings opened");
+			if (!this.managerSelection.isOpen) this.openDbManager();
+			else this.renderDbManager();
+			window.setTimeout(() => {
+				const input = document.getElementById(UI_IDS.imgbbSettingsInput);
+				input?.focus();
+				input?.select?.();
+			}, 0);
+		}
+		dismissImgBBInfo() {
+			this.uiState.manager.settingsSections = {
+				...this.uiState.manager.settingsSections || {},
+				imgbbInfoDismissed: true
+			};
+			this.scheduleUiStateSave("ImgBB info dismissed");
+			document.getElementById(UI_IDS.imgbbInfoPanel)?.remove();
 		}
 		normalizeLinkCheckScope() {
 			const scopeAll = this.linkCheckState.scopeAll !== false;
@@ -7604,7 +8262,7 @@
 			const category = getUserCategories(this.dbState, RecordType.IMAGE).find((item) => item.id === categoryId);
 			if (!category) return;
 			const dataLines = parseLines(category.content).filter((line) => !isNoPreviewsMarker(line));
-			const shouldEnable = enabled && getCategoryDataLines(category.content).length <= IMAGE_PREVIEW_MAX_ITEMS;
+			const shouldEnable = enabled && getCategoryDataLines(category.content).length <= getImagePreviewMaxItems();
 			category.content = formatCategoryContent(shouldEnable ? dataLines.join("\n") : [NO_PREVIEWS_MARKER, ...dataLines].join("\n"));
 			this.setManagerSelectedCategory(RecordType.IMAGE, category.id);
 			if (this.managerSelection.isOpen && this.dbState.activeType === RecordType.IMAGE && this.managerSelection.selectedCategoryByType[RecordType.IMAGE] === category.id) this.syncEditorTextarea();
@@ -7776,6 +8434,7 @@
 				this.mountTextPickers(),
 				this.mountMediaPickers(),
 				this.mountUploadPanels(),
+				this.mountImgBBInfoPanel(),
 				this.mountSendOrDeleteDownloadTrigger(),
 				this.autoSend.mountControls(),
 				this.autoSend.renderManager(),

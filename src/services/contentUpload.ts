@@ -1,8 +1,5 @@
 import { USER_CONFIG } from '../domain/constants';
 
-const IMGBB_MAX_BYTES = USER_CONFIG.upload.imgbbMaxBytes;
-const VIDHOSTING_MAX_BYTES = USER_CONFIG.upload.vidhostingMaxBytes;
-
 type UploadResponse = {
   status: number;
   text: string;
@@ -23,6 +20,10 @@ function parseJson(text: string): any {
 function createHttpError(service: string, response: UploadResponse, fallback = 'Upload failed'): Error {
   const body = response.text.trim();
   return new Error(`${service}: ${body || `${fallback} (HTTP ${response.status})`}`);
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
 async function postFormData(url: string, formData: FormData): Promise<UploadResponse> {
@@ -70,7 +71,9 @@ async function postFormData(url: string, formData: FormData): Promise<UploadResp
 export async function uploadImageToImgBB(file: File, apiKey: string): Promise<string> {
   const key = String(apiKey || '').trim();
   if (!key) throw new Error('ImgBB API key is required');
-  if (file.size > IMGBB_MAX_BYTES) throw new Error(`${file.name}: ImgBB limit is 32 MB`);
+  if (file.size > USER_CONFIG.upload.imgbbMaxBytes) {
+    throw new Error(`${file.name}: ImgBB limit is ${formatMegabytes(USER_CONFIG.upload.imgbbMaxBytes)}`);
+  }
 
   const endpoint = new URL('https://api.imgbb.com/1/upload');
   endpoint.searchParams.set('key', key);
@@ -111,7 +114,9 @@ export async function uploadFileToCatbox(file: File, userhash = ''): Promise<str
 }
 
 export async function uploadVideoToVidHosting(file: File): Promise<string> {
-  if (file.size > VIDHOSTING_MAX_BYTES) throw new Error(`${file.name}: VidHosting limit is 100 MB`);
+  if (file.size > USER_CONFIG.upload.vidhostingMaxBytes) {
+    throw new Error(`${file.name}: VidHosting limit is ${formatMegabytes(USER_CONFIG.upload.vidhostingMaxBytes)}`);
+  }
 
   const formData = new FormData();
   formData.append('file', file, file.name);

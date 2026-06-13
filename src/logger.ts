@@ -1,7 +1,7 @@
-import { CONFIG, LOG_PREFIX } from './domain/constants';
+import { LOG_PREFIX, USER_CONFIG } from './domain/constants';
 
 export function log(level: string, message: string, details?: unknown): void {
-  if (!CONFIG.debug && level !== 'warn' && level !== 'error') return;
+  if (!USER_CONFIG.debug && level !== 'warn' && level !== 'error') return;
 
   const target = (console as any)[level] || console.log;
   if (details === undefined) {

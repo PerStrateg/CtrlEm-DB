@@ -1,9 +1,6 @@
 import { RecordType, USER_CONFIG } from '../domain/constants';
 import { getCategoryDataLines, isHttpUrl, parseLabeledUrlLine } from '../domain/content';
 
-const CHECK_TIMEOUT_MS = USER_CONFIG.linkCheck.timeoutMs;
-const CHECK_CONCURRENCY = USER_CONFIG.linkCheck.concurrency;
-
 function getAcceptHeader(type: string): string {
   if (type === RecordType.IMAGE) return 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
   if (type === RecordType.SOUND) return 'audio/*,*/*;q=0.8';
@@ -73,7 +70,7 @@ async function requestMediaUrl(url: string, method: string, accept: string): Pro
         method,
         url,
         headers,
-        timeout: CHECK_TIMEOUT_MS,
+        timeout: USER_CONFIG.linkCheck.timeoutMs,
         responseType: method === 'GET' ? 'arraybuffer' : undefined,
         onload: (response: any) => resolve({
           status: normalizeStatus(response.status),
@@ -180,7 +177,7 @@ export async function findBrokenMediaLinks(type: string, content: string, onProg
     }
   };
 
-  const workers = Array.from({ length: Math.min(CHECK_CONCURRENCY, httpEntries.length) }, runWorker);
+  const workers = Array.from({ length: Math.min(USER_CONFIG.linkCheck.concurrency, httpEntries.length) }, runWorker);
   await Promise.all(workers);
 
   broken.sort((a, b) => a.index - b.index);

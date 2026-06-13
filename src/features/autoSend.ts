@@ -1,9 +1,9 @@
 import {
   ACTION_COMMANDS,
   AUTO_SEND_COMMAND_KEYS,
-  AUTO_SEND_INTERVAL_MAX,
-  AUTO_SEND_INTERVAL_MIN,
   AUTO_SEND_SESSION_STORAGE_KEY,
+  getAutoSendIntervalMax,
+  getAutoSendIntervalMin,
   MEDIA_COMMANDS,
   RecordType,
   TEXT_COMMANDS,
@@ -17,7 +17,6 @@ import { createElement } from '../ui/dom';
 
 const MANAGER_ID = 'ctrlem-db-autosend-manager';
 const TOAST_BOTTOM_PROPERTY = '--ctrlem-db-toast-bottom';
-const RUNNER_MS = USER_CONFIG.autoSend.runnerMs;
 const INTERVAL_BUFFER_MS = 100;
 
 export class AutoSendController {
@@ -144,24 +143,23 @@ export class AutoSendController {
   getStartIndex(config: any, input: any, items: any[]): number {
     const cursor = this.readCursor(config.key);
     const uiState = this.options.getPickerUiState?.(config.key) || {};
-    const savedValue = String(cursor?.lastSelectedValue || uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || '').trim();
-    const savedIndex = Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0
-      ? Number(cursor.nextIndex)
-      : Number(uiState.itemIndex);
+    const selectedIndex = items.findIndex((item) => item.isSelected);
+    if (selectedIndex >= 0) return selectedIndex;
 
+    const savedValue = String(uiState.value || input?.dataset?.ctrlemDbSelectedValue || input?.value || '').trim();
+    const savedIndex = Number(uiState.itemIndex);
     if (Number.isFinite(savedIndex) && savedIndex >= 0 && items[savedIndex]?.value === savedValue) {
       return savedIndex;
     }
+
+    const valueIndex = items.findIndex((item) => item.value === savedValue);
+    if (valueIndex >= 0) return valueIndex;
 
     if (Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0) {
       return Number(cursor.nextIndex) % items.length;
     }
 
-    const selectedIndex = items.findIndex((item) => item.isSelected);
-    if (selectedIndex >= 0) return selectedIndex;
-
-    const valueIndex = items.findIndex((item) => item.value === savedValue);
-    return valueIndex >= 0 ? valueIndex : 0;
+    return 0;
   }
 
   getItemSelector(config: any): string {
@@ -383,7 +381,7 @@ export class AutoSendController {
     const taskIntervalSeconds = this.getControlIntervalSeconds(config.key);
     const startIndex = config.clickOnly ? 0 : this.getStartIndex(config, input, items);
     const startItem = config.clickOnly ? null : items[startIndex % items.length];
-    const category = cursor?.category || this.getTaskCategory(config, items);
+    const category = startItem?.category || cursor?.category || this.getTaskCategory(config, items);
 
     const state = {
       taskId: createId('autosend'),
@@ -392,14 +390,12 @@ export class AutoSendController {
       button,
       sendType: this.getSendType(config),
       category,
-      categoryId: cursor?.categoryId || startItem?.categoryId || '',
+      categoryId: startItem?.categoryId || cursor?.categoryId || '',
       profileTitle: this.getProfileTitle(),
       pageCode: this.getPageCode(),
       receiverKey: this.getReceiverKey(),
       taskIntervalSeconds,
-      nextIndex: Number.isFinite(Number(cursor?.nextIndex)) && Number(cursor.nextIndex) >= 0
-        ? Number(cursor.nextIndex)
-        : startIndex,
+      nextIndex: startIndex,
       itemValue: startItem?.value || cursor?.lastSelectedValue || '',
       itemIndex: Number.isFinite(Number(startItem?.index)) ? Number(startItem.index) : startIndex,
       dueAt: now,
@@ -557,7 +553,15 @@ export class AutoSendController {
     if (this.runnerTimer) return;
     this.runnerTimer = window.setInterval(() => {
       this.processDueQueue();
-    }, RUNNER_MS);
+    }, USER_CONFIG.autoSend.runnerMs);
+  }
+
+  restartRunner(): void {
+    if (this.runnerTimer) {
+      window.clearInterval(this.runnerTimer);
+      this.runnerTimer = 0;
+    }
+    this.startRunner();
   }
 
   getOrCreateControlHost(sendButton: any): any {
@@ -589,8 +593,8 @@ export class AutoSendController {
       type: 'number',
       value: String(this.getIntervalSeconds()),
       attrs: {
-        min: String(AUTO_SEND_INTERVAL_MIN),
-        max: String(AUTO_SEND_INTERVAL_MAX),
+        min: String(getAutoSendIntervalMin()),
+        max: String(getAutoSendIntervalMax()),
         step: '1',
         'aria-label': 'Auto-send interval in seconds',
       },

@@ -434,7 +434,6 @@ function createBrokenLinkTools(viewModel: any, actions: any): any {
   });
 
   return createElement('div', { className: 'ctrlem-db-link-check-tools' }, [
-    createElement('div', { className: 'ctrlem-db-settings-title', text: 'Check broken links' }),
     createElement('div', {
       className: 'ctrlem-db-link-check-copy',
       text: 'Checking many links can take some time. You can check all media or a specific category.',
@@ -465,6 +464,86 @@ function createBrokenLinkTools(viewModel: any, actions: any): any {
     ]),
     resultTextarea,
   ]);
+}
+
+function createSettingsSpoiler(key: string, title: string, viewModel: any, actions: any, children: any[]): any {
+  const open = viewModel.uiState?.settingsSections?.[key] === true;
+  const descriptions: any = {
+    uploader: 'API keys and upload behavior',
+    linkCheck: 'Scan media links and clean broken entries',
+    constants: 'Advanced timing and limits',
+  };
+  const details = createElement('details', {
+    className: 'ctrlem-db-settings-section ctrlem-db-settings-spoiler',
+    attrs: open ? { open: '' } : {},
+    dataset: { section: key },
+  }, [
+    createElement('summary', { className: 'ctrlem-db-settings-summary' }, [
+      createElement('span', { className: 'ctrlem-db-settings-summary-copy' }, [
+        createElement('span', { className: 'ctrlem-db-settings-title', text: title }),
+        createElement('span', {
+          className: 'ctrlem-db-settings-description',
+          text: descriptions[key] || '',
+        }),
+      ]),
+      createElement('span', {
+        className: 'ctrlem-db-settings-chevron',
+        text: '▾',
+        attrs: { 'aria-hidden': 'true' },
+      }),
+    ]),
+    createElement('div', { className: 'ctrlem-db-settings-spoiler-body' }, children),
+  ]);
+  details.addEventListener('toggle', () => actions.setSettingsSectionOpen(key, details.open));
+  return details;
+}
+
+function getPathValue(source: any, path: string): any {
+  return path.split('.').reduce((value: any, key) => value?.[key], source);
+}
+
+function createConstantsFields(schema: any, values: any, actions: any, prefix = ''): any[] {
+  return Object.entries(schema || {}).flatMap(([key, itemSchema]: [string, any]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (itemSchema && typeof itemSchema === 'object' && 'label' in itemSchema) {
+      if (itemSchema.type === 'boolean') {
+        const input = createElement('input', {
+          type: 'checkbox',
+          checked: getPathValue(values, path) === true,
+        });
+        input.addEventListener('change', () => actions.setUserConfigValue(path, input.checked));
+        return [
+          createElement('label', { className: 'ctrlem-db-settings-field ctrlem-db-settings-check' }, [
+            input,
+            createElement('span', { text: itemSchema.label }),
+          ]),
+        ];
+      }
+
+      const input = createElement('input', {
+        className: 'ctrlem-db-settings-input',
+        type: 'number',
+        value: String(getPathValue(values, path)),
+        attrs: {
+          min: String(itemSchema.min),
+          max: String(itemSchema.max),
+          step: String(itemSchema.step || 1),
+        },
+      });
+      input.addEventListener('change', () => actions.setUserConfigValue(path, input.value));
+      return [
+        createElement('label', { className: 'ctrlem-db-settings-field' }, [
+          createElement('span', { text: itemSchema.label }),
+          input,
+        ]),
+      ];
+    }
+
+    return [
+      createElement('div', { className: 'ctrlem-db-settings-subtitle', text: key }),
+      ...createConstantsFields(itemSchema, values, actions, path),
+    ];
+  });
 }
 
 function createInfoPanel(viewModel: any): any {
@@ -532,6 +611,7 @@ function createSettingsTools(viewModel: any, actions: any): any {
   restoreDefaultsButton.addEventListener('click', actions.restoreDefaults);
 
   const imgbbApiKey = createElement('input', {
+    id: UI_IDS.imgbbSettingsInput,
     className: 'ctrlem-db-settings-input',
     type: 'password',
     value: viewModel.uploaderSettings?.imgbbApiKey || '',
@@ -563,10 +643,37 @@ function createSettingsTools(viewModel: any, actions: any): any {
   autoDownloadSendOrDeleteImages.addEventListener('change', () => {
     actions.setUploaderSetting('autoDownloadSendOrDeleteImages', autoDownloadSendOrDeleteImages.checked);
   });
+  const restoreConstantsButton = createElement('button', {
+    className: 'btn btn-sm btn-secondary',
+    text: 'Restore constants defaults',
+    type: 'button',
+  });
+  restoreConstantsButton.addEventListener('click', actions.restoreUserConfigDefaults);
 
   return createElement('div', { className: 'ctrlem-db-tab-panel ctrlem-db-settings-panel', attrs: { role: 'tabpanel' } }, [
-    createElement('div', { className: 'ctrlem-db-settings-section' }, [
-      createElement('div', { className: 'ctrlem-db-settings-title', text: 'Uploader settings' }),
+    createElement('div', { className: 'ctrlem-db-settings-section ctrlem-db-database-section' }, [
+      createElement('div', { className: 'ctrlem-db-settings-title', text: 'Database' }),
+      createElement('div', { className: 'ctrlem-db-import-actions' }, [
+        exportAllButton,
+        importAllButton,
+        restoreDefaultsButton,
+        importAllInput,
+      ]),
+    ]),
+    createSettingsSpoiler('uploader', 'Uploader settings', viewModel, actions, [
+      createElement('p', {
+        className: 'ctrlem-db-info-copy',
+        text: 'Open ImgBB API and click Get API key. Copy the key and paste it here before using ImgBB uploads.',
+      }),
+      createElement('a', {
+        className: 'ctrlem-db-settings-link',
+        text: 'ImgBB API',
+        attrs: {
+          href: 'https://api.imgbb.com/',
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+      }),
       createElement('label', { className: 'ctrlem-db-settings-field' }, [
         createElement('span', { text: 'ImgBB API key' }),
         imgbbApiKey,
@@ -584,17 +691,13 @@ function createSettingsTools(viewModel: any, actions: any): any {
         createElement('span', { text: 'Auto-download Send or Delete images' }),
       ]),
     ]),
-    createElement('div', { className: 'ctrlem-db-settings-section' }, [
+    createSettingsSpoiler('linkCheck', 'Check broken links', viewModel, actions, [
       createBrokenLinkTools(viewModel, actions),
     ]),
-    createElement('div', { className: 'ctrlem-db-settings-section ctrlem-db-database-section' }, [
-      createElement('div', { className: 'ctrlem-db-settings-title', text: 'Database' }),
-      createElement('div', { className: 'ctrlem-db-import-actions' }, [
-        exportAllButton,
-        importAllButton,
-        restoreDefaultsButton,
-        importAllInput,
-      ]),
+    createSettingsSpoiler('constants', 'Constants', viewModel, actions, [
+      createElement('div', { className: 'ctrlem-db-settings-constant-grid' },
+        createConstantsFields(viewModel.userConfigSchema, viewModel.userConfig, actions)),
+      restoreConstantsButton,
     ]),
   ]);
 }

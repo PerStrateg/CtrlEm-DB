@@ -1,6 +1,8 @@
 import {
-  AUTOSAVE_DELAY,
+  applyUserConfig,
   CONFIG,
+  cloneUserConfigDefaults,
+  getImagePreviewMaxItems,
   MEDIA_COMMANDS,
   NO_PREVIEWS_MARKER,
   RecordType,
@@ -8,8 +10,8 @@ import {
   TYPE_ORDER,
   UI_IDS,
   UPLOAD_COMMANDS,
-  IMAGE_PREVIEW_MAX_ITEMS,
   USER_CONFIG,
+  USER_CONFIG_SCHEMA,
 } from './domain/constants';
 import {
   clampAutoSendInterval,
@@ -52,9 +54,11 @@ import { findBrokenMediaLinks } from './services/linkChecker';
 import {
   readStoredState,
   readStoredUiState,
+  readStoredUserConfig,
   readStoredUploaderSettings,
   writeStoredState,
   writeStoredUiState,
+  writeStoredUserConfig,
   writeStoredUploaderSettings,
 } from './storage';
 import { renderDbManager as renderManagerView, renderCategoryList as renderManagerCategoryList, setManagerStatus } from './ui/dbManager';
@@ -122,6 +126,8 @@ export class CtrlEmDbApp {
   private saveTimer = 0;
   private uiSaveTimer = 0;
   private uploaderSettingsSaveTimer = 0;
+  private userConfigSaveTimer = 0;
+  private imgbbInfoToastShown = false;
   private mediaRenderToken = 0;
   private sendOrDeleteDownloadArms: any[] = [];
   private pendingMediaMounts = new Set<string>();
@@ -144,7 +150,7 @@ export class CtrlEmDbApp {
   private readonly uploaderSettings: any = {
     imgbbApiKey: '',
     catboxUserhash: '',
-    hideCtrlEmUploader: false,
+    hideCtrlEmUploader: true,
     autoDownloadSendOrDeleteImages: true,
   };
   private managerSelection: any = {
@@ -190,6 +196,11 @@ export class CtrlEmDbApp {
     setActiveTab: (tab: string) => this.setActiveTab(tab),
     setCategoryListScroll: (scrollTop: number) => this.setCategoryListScroll(scrollTop),
     setUploaderSetting: (name: string, value: string) => this.setUploaderSetting(name, value),
+    setUserConfigValue: (path: string, value: string) => this.setUserConfigValue(path, value),
+    restoreUserConfigDefaults: () => this.restoreUserConfigDefaults(),
+    setSettingsSectionOpen: (section: string, open: boolean) => this.setSettingsSectionOpen(section, open),
+    openImgBBSettings: () => this.openImgBBSettings(),
+    dismissImgBBInfo: () => this.dismissImgBBInfo(),
     getUploaderSettings: () => this.uploaderSettings,
     getUploadTarget: (config: any) => this.getUploadTarget(config),
     getUploadCategories: (config: any) => this.getUploadCategories(config),
@@ -215,11 +226,14 @@ export class CtrlEmDbApp {
   }
 
   async loadDbState(): Promise<void> {
-    const [stored, storedUi, storedUploaderSettings] = await Promise.all([
+    const [stored, storedUi, storedUploaderSettings, storedUserConfig] = await Promise.all([
       readStoredState(),
       readStoredUiState(),
       readStoredUploaderSettings(),
+      readStoredUserConfig(),
     ]);
+    applyUserConfig(storedUserConfig || {});
+    this.autoSend.restartRunner();
     this.dbState = normalizeDbState(stored || createSeedState());
     this.uiState = normalizeUiState(storedUi || createUiState());
     this.restoreUploaderSettings(storedUploaderSettings);
@@ -233,7 +247,9 @@ export class CtrlEmDbApp {
     Object.assign(this.uploaderSettings, {
       imgbbApiKey: String(source.imgbbApiKey || ''),
       catboxUserhash: String(source.catboxUserhash || ''),
-      hideCtrlEmUploader: source.hideCtrlEmUploader === true,
+      hideCtrlEmUploader: Object.prototype.hasOwnProperty.call(source, 'hideCtrlEmUploader')
+        ? source.hideCtrlEmUploader === true
+        : true,
       autoDownloadSendOrDeleteImages: source.autoDownloadSendOrDeleteImages !== false,
     });
   }
@@ -265,6 +281,15 @@ export class CtrlEmDbApp {
     this.uploaderSettingsSaveTimer = window.setTimeout(() => {
       writeStoredUploaderSettings(clonePlain(this.uploaderSettings)).catch((error: any) => {
         log('warn', 'Failed to save uploader settings', { reason, message: error?.message || String(error) });
+      });
+    }, USER_CONFIG.ui.saveDelayMs);
+  }
+
+  scheduleUserConfigSave(reason = 'user config changed'): void {
+    window.clearTimeout(this.userConfigSaveTimer);
+    this.userConfigSaveTimer = window.setTimeout(() => {
+      writeStoredUserConfig(clonePlain(USER_CONFIG)).catch((error: any) => {
+        log('warn', 'Failed to save user config', { reason, message: error?.message || String(error) });
       });
     }, USER_CONFIG.ui.saveDelayMs);
   }
@@ -343,6 +368,8 @@ export class CtrlEmDbApp {
       selectedCategory,
       profileTitle: this.getProfileTitle(),
       uploaderSettings: this.uploaderSettings,
+      userConfig: USER_CONFIG,
+      userConfigSchema: USER_CONFIG_SCHEMA,
       uiState: this.uiState.manager,
       linkCheck: this.linkCheckState,
       linkCheckCategories: LINK_CHECK_MEDIA_TYPES.reduce((result: any, type) => {
@@ -408,7 +435,7 @@ export class CtrlEmDbApp {
       }
       this.renderCategoryList();
       this.refreshDbConsumers(reason);
-    }, AUTOSAVE_DELAY);
+    }, USER_CONFIG.autosaveDelayMs);
   }
 
   refreshDbConsumers(reason = 'refresh'): void {
@@ -864,6 +891,66 @@ export class CtrlEmDbApp {
       .some(Boolean);
   }
 
+  refreshUploadPanels(): void {
+    Object.values(UPLOAD_COMMANDS).forEach((config: any) => {
+      document.getElementById(getUploadPanelId((config as any).key))?.remove();
+    });
+    this.mountUploadPanels();
+  }
+
+  mountImgBBInfoPanel(): boolean {
+    const existing = document.getElementById(UI_IDS.imgbbInfoPanel);
+    const hasKey = Boolean(String(this.uploaderSettings.imgbbApiKey || '').trim());
+    const dismissed = this.uiState.manager.settingsSections?.imgbbInfoDismissed === true;
+    if (hasKey || dismissed) {
+      existing?.remove();
+      return Boolean(existing);
+    }
+
+    if (existing) return false;
+
+    const resultsPanel: any = document.querySelector(CONFIG.selectors.resultsPanel);
+    if (!resultsPanel?.parentElement) return false;
+
+    const settingsButton = createElement('button', {
+      className: 'btn btn-sm btn-secondary ctrlem-db-imgbb-info-settings',
+      text: 'Open settings',
+      type: 'button',
+    });
+    settingsButton.addEventListener('click', () => this.openImgBBSettings());
+
+    const closeButton = createElement('button', {
+      className: 'ctrlem-db-imgbb-info-close',
+      text: 'x',
+      title: 'Close',
+      type: 'button',
+      attrs: { 'aria-label': 'Close ImgBB info' },
+    });
+    closeButton.addEventListener('click', () => this.dismissImgBBInfo());
+
+    const panel = createElement('div', {
+      id: UI_IDS.imgbbInfoPanel,
+      className: 'panel ctrlem-db-imgbb-info-panel',
+    }, [
+      createElement('div', { className: 'ctrlem-db-imgbb-info-head' }, [
+        createElement('h2', { text: 'Info' }),
+        closeButton,
+      ]),
+      createElement('p', {
+        className: 'ctrlem-db-imgbb-info-copy',
+        text: 'Add an ImgBB API key to enable ImgBB uploads.',
+      }),
+      settingsButton,
+    ]);
+
+    resultsPanel.insertAdjacentElement('beforebegin', panel);
+    if (!this.imgbbInfoToastShown) {
+      this.imgbbInfoToastShown = true;
+      this.site.notify('Add an ImgBB API key to enable ImgBB uploads.', 'warning');
+    }
+    return true;
+  }
+
   getSendOrDeleteDownloadFilename(src: string): string {
     const timestamp = new Date().toISOString()
       .slice(0, 19)
@@ -1147,6 +1234,86 @@ export class CtrlEmDbApp {
       this.sendOrDeleteDownloadArms = [];
     }
     this.scheduleUploaderSettingsSave();
+    if (name === 'imgbbApiKey') this.mountImgBBInfoPanel();
+    if (name === 'hideCtrlEmUploader') this.refreshUploadPanels();
+  }
+
+  setUserConfigValue(path: string, value: any): void {
+    const keys = String(path || '').split('.').filter(Boolean);
+    if (!keys.length) return;
+
+    let schema: any = USER_CONFIG_SCHEMA;
+    let target: any = USER_CONFIG;
+    for (let index = 0; index < keys.length - 1; index += 1) {
+      schema = schema?.[keys[index]];
+      target = target?.[keys[index]];
+      if (!schema || !target) return;
+    }
+
+    const key = keys[keys.length - 1];
+    const fieldSchema = schema?.[key];
+    if (!fieldSchema || !('label' in fieldSchema)) return;
+
+    if (fieldSchema.type === 'boolean') {
+      target[key] = value === true || value === 'true';
+      this.scheduleUserConfigSave();
+      this.renderDbManager();
+      return;
+    }
+
+    const parsed = Number(value);
+    const fallback = Number(target[key]);
+    target[key] = Math.min(Number(fieldSchema.max), Math.max(Number(fieldSchema.min), Number.isFinite(parsed) ? parsed : fallback));
+    this.scheduleUserConfigSave();
+    this.renderDbManager();
+    this.autoSend.restartRunner();
+    this.autoSend.syncIntervalInputs();
+    this.refreshDbConsumers('user config changed');
+  }
+
+  restoreUserConfigDefaults(): void {
+    applyUserConfig(cloneUserConfigDefaults());
+    this.scheduleUserConfigSave('user config defaults restored');
+    this.renderDbManager();
+    this.autoSend.restartRunner();
+    this.autoSend.syncIntervalInputs();
+    this.refreshDbConsumers('user config defaults restored');
+    setManagerStatus('Constants restored to defaults', 'success');
+  }
+
+  setSettingsSectionOpen(section: string, open: boolean): void {
+    const sections = this.uiState.manager.settingsSections || {};
+    if (!Object.prototype.hasOwnProperty.call(sections, section)) return;
+    sections[section] = open === true;
+    this.uiState.manager.settingsSections = sections;
+    this.scheduleUiStateSave('settings section toggled');
+  }
+
+  openImgBBSettings(): void {
+    this.uiState.manager.activeTab = 'settings';
+    this.uiState.manager.settingsSections = {
+      ...(this.uiState.manager.settingsSections || {}),
+      uploader: true,
+      imgbbInfoDismissed: false,
+    };
+    this.scheduleUiStateSave('ImgBB settings opened');
+    if (!this.managerSelection.isOpen) this.openDbManager();
+    else this.renderDbManager();
+
+    window.setTimeout(() => {
+      const input: any = document.getElementById(UI_IDS.imgbbSettingsInput);
+      input?.focus();
+      input?.select?.();
+    }, 0);
+  }
+
+  dismissImgBBInfo(): void {
+    this.uiState.manager.settingsSections = {
+      ...(this.uiState.manager.settingsSections || {}),
+      imgbbInfoDismissed: true,
+    };
+    this.scheduleUiStateSave('ImgBB info dismissed');
+    document.getElementById(UI_IDS.imgbbInfoPanel)?.remove();
   }
 
   normalizeLinkCheckScope(): any {
@@ -1867,7 +2034,7 @@ export class CtrlEmDbApp {
     if (!category) return;
 
     const dataLines = parseLines(category.content).filter((line) => !isNoPreviewsMarker(line));
-    const shouldEnable = enabled && getCategoryDataLines(category.content).length <= IMAGE_PREVIEW_MAX_ITEMS;
+    const shouldEnable = enabled && getCategoryDataLines(category.content).length <= getImagePreviewMaxItems();
     category.content = formatCategoryContent(shouldEnable
       ? dataLines.join('\n')
       : [NO_PREVIEWS_MARKER, ...dataLines].join('\n'));
@@ -2067,6 +2234,7 @@ export class CtrlEmDbApp {
       this.mountTextPickers(),
       this.mountMediaPickers(),
       this.mountUploadPanels(),
+      this.mountImgBBInfoPanel(),
       this.mountSendOrDeleteDownloadTrigger(),
       this.autoSend.mountControls(),
       this.autoSend.renderManager(),

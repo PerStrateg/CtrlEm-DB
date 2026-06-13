@@ -11,9 +11,6 @@ const STATUS = Object.freeze({
   UPLOADED: 'Uploaded',
   FAILED: 'Failed',
 });
-const UPLOAD_DELAY_MS = USER_CONFIG.upload.delayMs;
-const CTRLEM_IMAGE_MAX_BYTES = USER_CONFIG.upload.ctrlemImageMaxBytes;
-const CTRLEM_SOUND_MAX_BYTES = USER_CONFIG.upload.ctrlemSoundMaxBytes;
 const CTRLEM_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 const CTRLEM_SOUND_TYPES = new Set(['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a', 'audio/flac', 'audio/webm', 'audio/opus']);
 
@@ -30,6 +27,10 @@ function getMediaLabel(config: any): string {
   if (config.type === RecordType.SOUND) return 'audio';
   if (config.type === RecordType.VIDEO) return 'video';
   return 'file';
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${Math.round(bytes / 1024 / 1024)}MB`;
 }
 
 function getAccept(config: any, tool: string): string {
@@ -49,9 +50,9 @@ function isAcceptedFile(config: any, tool: string, file: File): boolean {
 }
 
 function getToolNote(config: any, tool: string): string {
-  if (tool === 'ctrlem' && config.type === RecordType.IMAGE) return 'Max 5MB - JPG, PNG, GIF, WebP';
-  if (tool === 'ctrlem' && config.type === RecordType.SOUND) return 'Max 15MB - MP3, WAV, OGG, M4A';
-  if (tool === 'imgbb') return 'Max 32MB - JPG, PNG, GIF, WebP - Requires key';
+  if (tool === 'ctrlem' && config.type === RecordType.IMAGE) return `Max ${formatMegabytes(USER_CONFIG.upload.ctrlemImageMaxBytes)} - JPG, PNG, GIF, WebP`;
+  if (tool === 'ctrlem' && config.type === RecordType.SOUND) return `Max ${formatMegabytes(USER_CONFIG.upload.ctrlemSoundMaxBytes)} - MP3, WAV, OGG, M4A`;
+  if (tool === 'imgbb') return `Max ${formatMegabytes(USER_CONFIG.upload.imgbbMaxBytes)} - JPG, PNG, GIF, WebP - Requires key`;
   if (tool === 'catbox') {
     return config.type === RecordType.SOUND
       ? 'Audio files - Optional userhash in Settings'
@@ -74,11 +75,11 @@ function delay(ms: number): Promise<void> {
 
 function getCtrlEmValidationError(config: any, file: File): string {
   if (config.type === RecordType.IMAGE) {
-    if (file.size > CTRLEM_IMAGE_MAX_BYTES) return 'Image must be under 5MB.';
+    if (file.size > USER_CONFIG.upload.ctrlemImageMaxBytes) return `Image must be under ${formatMegabytes(USER_CONFIG.upload.ctrlemImageMaxBytes)}.`;
     if (!CTRLEM_IMAGE_TYPES.has(file.type)) return 'Only JPG, PNG, GIF, and WebP images are allowed.';
   }
   if (config.type === RecordType.SOUND) {
-    if (file.size > CTRLEM_SOUND_MAX_BYTES) return 'Audio must be under 15MB.';
+    if (file.size > USER_CONFIG.upload.ctrlemSoundMaxBytes) return `Audio must be under ${formatMegabytes(USER_CONFIG.upload.ctrlemSoundMaxBytes)}.`;
     if (!CTRLEM_SOUND_TYPES.has(file.type)) return 'Only MP3, WAV, OGG, M4A, FLAC audio allowed.';
   }
   return '';
@@ -429,8 +430,8 @@ function createNativeTool(config: any, input: any, dropzone: any, actions: any):
     for (let index = 0; index < session.items.length; index += 1) {
       const item = session.items[index];
       if (index > 0) {
-        session.setStatus(`Waiting ${UPLOAD_DELAY_MS / 1000}s before next upload...`);
-        await delay(UPLOAD_DELAY_MS);
+        session.setStatus(`Waiting ${USER_CONFIG.upload.delayMs / 1000}s before next upload...`);
+        await delay(USER_CONFIG.upload.delayMs);
       }
 
       session.setItemStatus(item, STATUS.UPLOADING);

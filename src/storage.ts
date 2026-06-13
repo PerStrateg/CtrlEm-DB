@@ -1,4 +1,9 @@
-import { STORAGE_KEY, UI_STORAGE_KEY, UPLOADER_SETTINGS_STORAGE_KEY } from './domain/constants';
+import {
+  STORAGE_KEY,
+  UI_STORAGE_KEY,
+  UPLOADER_SETTINGS_STORAGE_KEY,
+  USER_CONFIG_STORAGE_KEY,
+} from './domain/constants';
 import { log } from './logger';
 
 async function readStoredJson(key: string, label: string): Promise<any> {
@@ -53,4 +58,12 @@ export async function readStoredUploaderSettings(): Promise<any> {
 
 export async function writeStoredUploaderSettings(settings: any): Promise<void> {
   await writeStoredJson(UPLOADER_SETTINGS_STORAGE_KEY, settings);
+}
+
+export async function readStoredUserConfig(): Promise<any> {
+  return readStoredJson(USER_CONFIG_STORAGE_KEY, 'user config');
+}
+
+export async function writeStoredUserConfig(config: any): Promise<void> {
+  await writeStoredJson(USER_CONFIG_STORAGE_KEY, config);
 }
