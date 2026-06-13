@@ -1,0 +1,22 @@
+[     541ms] [ERROR] Failed to load resource: net::ERR_BLOCKED_BY_CLIENT @ https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447:0
+[  112806ms] [ERROR] Failed to load resource: net::ERR_BLOCKED_BY_CLIENT @ https://static.cloudflareinsights.com/beacon.min.js/v833ccba57c9e4d2798f2e76cebdd09a11778172276447:0
+[  112877ms] [INFO] [CtrlEm DB] DB state loaded {links: Object, text: Object, image: Object, sound: Object, video: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112878ms] [INFO] [CtrlEm DB] Script started {href: https://ctrlem.com/u/KPD0M, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112881ms] [INFO] [CtrlEm DB] DB button mounted {selector: .panel--commands .panel-head} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112883ms] [INFO] [CtrlEm DB] Text picker mounted {command: openPage, type: links, selector: #val-openPage, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112884ms] [INFO] [CtrlEm DB] Text picker mounted {command: sendMessage, type: text, selector: #val-sendMessage, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112884ms] [INFO] [CtrlEm DB] Text picker mounted {command: writeForMe, type: text, selector: #val-writeForMe-text, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112885ms] [INFO] [CtrlEm DB] Text picker mounted {command: videoOverlay, type: video, selector: #val-videoOverlay, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112886ms] [INFO] [CtrlEm DB] Text picker mounted {command: popupSound, type: sound, selector: #val-popupSound, summary: Object} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112887ms] [INFO] [CtrlEm DB] Site media UI hidden {command: popupImage, count: 1} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112889ms] [INFO] [CtrlEm DB] Site media UI hidden {command: changeWallpaper, count: 1} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112892ms] [INFO] [CtrlEm DB] Upload panel mounted {command: popupImage, tools: Array(2), native: true} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112893ms] [INFO] [CtrlEm DB] Upload panel mounted {command: changeWallpaper, tools: Array(2), native: true} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112893ms] [INFO] [CtrlEm DB] Upload panel mounted {command: popupSound, tools: Array(1), native: true} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112894ms] [INFO] [CtrlEm DB] Upload panel mounted {command: videoOverlay, tools: Array(2), native: false} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  112896ms] [INFO] [CtrlEm DB] Auto-send controls mounted @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2766
+[  113117ms] [INFO] [CtrlEm DB] Default fallback {command: popupImage} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  113117ms] [INFO] [CtrlEm DB] Default fallback {command: changeWallpaper} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  113120ms] [INFO] [CtrlEm DB] Media picker mounted {command: popupImage, type: image, categories: 19, items: 178} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  113121ms] [INFO] [CtrlEm DB] Media picker mounted {command: changeWallpaper, type: image, categories: 19, items: 178} @ chrome-extension://liilgpjgabokdklappibcjfablkpcekh/CtrlEm%20DB%20by%20Strateg.user.js:2769
+[  113122ms] [INFO] Images loaded lazily and replaced with placeholders. Load events are deferred. See https://go.microsoft.com/fwlink/?linkid=2048113 @ https://ctrlem.com/u/KPD0M:0

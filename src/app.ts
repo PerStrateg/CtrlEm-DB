@@ -1129,9 +1129,9 @@ export class CtrlEmDbApp {
   setMinimumRequestInterval(seconds: number, options: any = {}): void {
     const nextInterval = clampMinimumRequestInterval(seconds);
     this.dbState.minimumRequestIntervalSeconds = nextInterval;
-    log('info', 'Auto-send minimum request interval changed', { seconds: nextInterval });
-    this.saveDbState('auto-send minimum request interval changed');
-    if (options.status !== false) setManagerStatus(`Auto-send min request interval: ${nextInterval}s`, 'info');
+    log('info', 'Auto-send per-receiver minimum request interval changed', { seconds: nextInterval });
+    this.saveDbState('auto-send per-receiver minimum request interval changed');
+    if (options.status !== false) setManagerStatus(`Auto-send per-receiver min request interval: ${nextInterval}s`, 'info');
   }
 
   setUploaderSetting(name: string, value: any): void {

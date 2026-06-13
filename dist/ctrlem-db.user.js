@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CtrlEm DB by Strateg
 // @namespace    https://discord.com/channels/1465036592262676601/1505167683107160156
-// @version      1.3.0
+// @version      1.3.1
 // @description  Adds DB shortcuts and a DB manager to CtrlEm command pages.
 // @license      MIT
 // @match        https://ctrlem.com/*
@@ -414,7 +414,7 @@
 	function uniqueStrings(values) {
 		return Array.from(new Set(values.filter(Boolean)));
 	}
-	var defaultDb_default = "{  \"version\": 2,  \"exportedAt\": \"2026-05-29T16:16:27.363Z\",  \"autoSendIntervalSeconds\": 300,  \"minimumRequestIntervalSeconds\": 3,  \"types\": {    \"links\": [      {        \"name\": \"Hypnotube: Latex\",        \"content\": \"https://hypnotube.com/video/dreaming-latex-36543.html\\n\"      }    ],    \"text\": [      {        \"name\": \"Hello\",        \"content\": \"Hey there. Ready to play?\\nClearing screens is no fun at all!\\nI wish you would think less at work\\n\"      }    ],    \"image\": [      {        \"name\": \"Girls 2D\",        \"content\": \"https://i.ibb.co/Q7dvRLXj/popup-1778972568083.jpg\\nhttps://i.ibb.co/27XX01xX/ssdfsdf.png\\n\"      },      {        \"name\": \"Feets\",        \"content\": \"https://ctrlem.com/api/uploads/520be0f5-9c14-4714-8ce5-d6e3bf0b2381/image\\n\"      },      {        \"name\": \"Wallpapers\",        \"content\": \"https://i.ibb.co/TxDKQwPL/qxqmfk8.png\\n\"      }    ],    \"sound\": [      {        \"name\": \"Kisses\",        \"content\": \"https://files.catbox.moe/b8pqxq.mp3 23 sec kisses\\n\"      }    ],    \"video\": [      {        \"name\": \"Shiny\",        \"content\": \"https://stream.vidhosting.in/videos/cb6c7a99.mp4 Soundy strength\\n\"      },      {        \"name\": \"Thights\",        \"content\": \"https://stream.vidhosting.in/videos/cb6c7a99.mp4 Soundy strength\\n\"      },      {        \"name\": \"Goth\",        \"content\": \"https://stream.vidhosting.in/videos/0387432f.mp4 goth walk with sound and clothed tits\\n\"      },      {        \"name\": \"Voice\",        \"content\": \"https://stream.vidhosting.in/videos/6447b981.mp4 Triggers you\\n\"      }    ]  }}\n";
+	var defaultDb_default = "{  \"version\": 2,  \"exportedAt\": \"2026-05-29T16:16:27.363Z\",  \"autoSendIntervalSeconds\": 300,  \"minimumRequestIntervalSeconds\": 3,  \"types\": {    \"links\": [      {        \"name\": \"Wikipedia\",        \"content\": \"https://www.wikipedia.org/\\n\"      }    ],    \"text\": [      {        \"name\": \"Hello\",        \"content\": \"Hey there. Ready to play?\"      }    ],    \"image\": [      {        \"name\": \"Girls 2D\",        \"content\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/All_Saints_Catholic_Church_%28St._Peters%2C_Missouri%29_-_stained_glass%2C_sacristy%2C_Immaculate_Heart_detail.jpg/1280px-All_Saints_Catholic_Church_%28St._Peters%2C_Missouri%29_-_stained_glass%2C_sacristy%2C_Immaculate_Heart_detail.jpg\\n\"      },      {        \"name\": \"Feets\",        \"content\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Generic_Camera_Icon.svg/250px-Generic_Camera_Icon.svg.png\\n\"      },      {        \"name\": \"Wallpapers\",        \"content\": \"https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Generic_Camera_Icon.svg/250px-Generic_Camera_Icon.svg.png\\n\"      }    ],    \"sound\": [      {        \"name\": \"Kisses\",        \"content\": \"https://files.catbox.moe/b8pqxq.mp3 23 sec kisses\\n\"      }    ],    \"video\": [      {        \"name\": \"Shiny\",        \"content\": \"https://stream.vidhosting.in/videos/cb6c7a99.mp4 Soundy strength\\n\"      }    ]  }}";
 	var EMPTY_DEFAULT_DB = Object.freeze({ types: Object.freeze({}) });
 	function readDefaultDb() {
 		try {
@@ -1304,6 +1304,7 @@
 	var NATIVE_SEND_DISABLED_GRACE_MS = 1e3;
 	var NATIVE_SEND_REQUEST_GRACE_MS = 250;
 	var SEND_SETTLE_MS = 1500;
+	var INTERVAL_BUFFER_MS = 100;
 	var RATE_LIMIT_BACKOFF_MIN_MS = 5e3;
 	var RATE_LIMIT_BACKOFF_MAX_MS = 2e4;
 	var TASK_STATUS = Object.freeze({
@@ -1324,9 +1325,7 @@
 		sendRequestCaptureDepth = 0;
 		nativeSendRequestsInFlight = 0;
 		nativeSendBusyUntil = 0;
-		nextSendAllowedAt = 0;
 		activeSendTaskId = "";
-		rateLimitBackoffUntil = 0;
 		managerCollapsed = false;
 		constructor(options) {
 			this.options = options;
@@ -1346,10 +1345,14 @@
 			return TEXT_COMMANDS[commandKey] || MEDIA_COMMANDS[commandKey] || ACTION_COMMANDS[commandKey] || null;
 		}
 		getIntervalMs() {
-			return clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds) * 1e3;
+			const seconds = clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
+			return this.getBufferedIntervalMs(seconds);
 		}
 		getIntervalSeconds() {
 			return clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
+		}
+		getBufferedIntervalMs(seconds) {
+			return clampAutoSendInterval(seconds) * 1e3 + INTERVAL_BUFFER_MS;
 		}
 		getMinimumRequestIntervalMs() {
 			return clampMinimumRequestInterval(this.options.getState()?.minimumRequestIntervalSeconds) * 1e3;
@@ -1380,6 +1383,15 @@
 		}
 		getPageUrl() {
 			return window.location.href;
+		}
+		getReceiverKey(pageKey = this.getPageKey(), pageCode = this.getPageCode()) {
+			const normalizedPageKey = String(pageKey || "").trim();
+			if (normalizedPageKey) return normalizedPageKey;
+			const normalizedPageCode = String(pageCode || "").trim();
+			return normalizedPageCode ? `code:${normalizedPageCode}` : "current";
+		}
+		getTaskReceiverKey(task) {
+			return String(task?.receiverKey || "").trim() || this.getReceiverKey(task?.pageKey, task?.pageCode);
 		}
 		getSendType(config, kind) {
 			if (kind === "manual") return "Manual";
@@ -1476,6 +1488,7 @@
 				activeSendStartedAt: 0,
 				activeSendSettleAt: 0,
 				rateLimitBackoffUntil: 0,
+				receiverCooldowns: {},
 				lock: null,
 				heartbeats: {},
 				updatedAt: Date.now()
@@ -1489,10 +1502,58 @@
 			if (value && typeof value === "object") return String(value.pageKey || "").trim();
 			return "";
 		}
+		normalizeReceiverCooldown(source) {
+			const cooldown = source && typeof source === "object" ? source : {};
+			return {
+				lastSentAt: Math.max(0, Number(cooldown.lastSentAt) || 0),
+				nextSendAllowedAt: Math.max(0, Number(cooldown.nextSendAllowedAt) || 0),
+				rateLimitBackoffUntil: Math.max(0, Number(cooldown.rateLimitBackoffUntil) || 0)
+			};
+		}
+		normalizeReceiverCooldowns(source) {
+			const cooldowns = {};
+			if (!source || typeof source !== "object") return cooldowns;
+			Object.keys(source).forEach((receiverKey) => {
+				const key = String(receiverKey || "").trim();
+				if (!key) return;
+				cooldowns[key] = this.normalizeReceiverCooldown(source[receiverKey]);
+			});
+			return cooldowns;
+		}
+		getReceiverCooldown(queue, receiverKey) {
+			const key = String(receiverKey || "").trim() || this.getReceiverKey();
+			const source = queue?.receiverCooldowns?.[key];
+			return this.normalizeReceiverCooldown(source);
+		}
+		ensureReceiverCooldown(queue, receiverKey) {
+			const key = String(receiverKey || "").trim() || this.getReceiverKey();
+			queue.receiverCooldowns ||= {};
+			queue.receiverCooldowns[key] = this.normalizeReceiverCooldown(queue.receiverCooldowns[key]);
+			return queue.receiverCooldowns[key];
+		}
+		getReceiverNextSendAllowedAt(queue, receiverKey) {
+			const cooldown = this.getReceiverCooldown(queue, receiverKey);
+			return Math.max(Number(cooldown.nextSendAllowedAt || 0), Number(cooldown.rateLimitBackoffUntil || 0));
+		}
+		getTaskNextSendAllowedAt(queue, task) {
+			return this.getReceiverNextSendAllowedAt(queue, this.getTaskReceiverKey(task));
+		}
+		setReceiverAttemptCooldown(queue, task, attemptedAt, nextAllowedAt) {
+			const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
+			cooldown.lastSentAt = Math.max(Number(cooldown.lastSentAt || 0), attemptedAt);
+			cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), nextAllowedAt);
+		}
+		setReceiverRateLimitBackoff(queue, task, backoffUntil) {
+			const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
+			cooldown.rateLimitBackoffUntil = Math.max(Number(cooldown.rateLimitBackoffUntil || 0), backoffUntil);
+			cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), backoffUntil);
+		}
 		normalizeTask(task, index) {
 			const createdAt = Math.max(0, Number(task.createdAt) || Date.now());
 			const sequence = Number.isFinite(Number(task.sequence)) ? Number(task.sequence) : createdAt + index;
 			const hasTaskInterval = task.taskIntervalSeconds !== void 0 && task.taskIntervalSeconds !== null && task.taskIntervalSeconds !== "";
+			const pageKey = String(task.pageKey || "").trim();
+			const pageCode = String(task.pageCode || "").trim();
 			return {
 				...task,
 				id: String(task.id || ""),
@@ -1501,9 +1562,10 @@
 				ownerId: String(task.ownerId || ""),
 				commandKey: String(task.commandKey || ""),
 				sendType: String(task.sendType || task.kind || ""),
-				pageKey: String(task.pageKey || "").trim(),
+				pageKey,
 				pageUrl: String(task.pageUrl || task.pageKey || "").trim(),
-				pageCode: String(task.pageCode || "").trim(),
+				pageCode,
+				receiverKey: String(task.receiverKey || "").trim() || this.getReceiverKey(pageKey, pageCode),
 				categoryId: String(task.categoryId || ""),
 				category: String(task.category || ""),
 				itemValue: String(task.itemValue || ""),
@@ -1524,15 +1586,31 @@
 			const heartbeats = source.heartbeats && typeof source.heartbeats === "object" ? source.heartbeats : {};
 			const lastSentAt = Math.max(0, Number(source.lastSentAt) || 0);
 			const migratedNextAllowedAt = lastSentAt > 0 ? lastSentAt + this.getMinimumRequestIntervalMs() : 0;
-			return {
-				tasks: Array.isArray(source.tasks) ? source.tasks.map((task, index) => this.normalizeTask(task, index)).filter((task) => task.id && task.key && task.kind && task.commandKey) : [],
+			const tasks = Array.isArray(source.tasks) ? source.tasks.map((task, index) => this.normalizeTask(task, index)).filter((task) => task.id && task.key && task.kind && task.commandKey) : [];
+			const legacyNextSendAllowedAt = Math.max(0, Number(source.nextSendAllowedAt) || migratedNextAllowedAt);
+			const legacyRateLimitBackoffUntil = Math.max(0, Number(source.rateLimitBackoffUntil) || 0);
+			const receiverCooldowns = this.normalizeReceiverCooldowns(source.receiverCooldowns);
+			const legacyCooldown = this.normalizeReceiverCooldown({
 				lastSentAt,
-				nextSendAllowedAt: Math.max(0, Number(source.nextSendAllowedAt) || migratedNextAllowedAt),
+				nextSendAllowedAt: legacyNextSendAllowedAt,
+				rateLimitBackoffUntil: legacyRateLimitBackoffUntil
+			});
+			if (legacyCooldown.lastSentAt || legacyCooldown.nextSendAllowedAt || legacyCooldown.rateLimitBackoffUntil) new Set(tasks.length ? tasks.map((task) => this.getTaskReceiverKey(task)) : [this.getReceiverKey()]).forEach((receiverKey) => {
+				const cooldown = this.ensureReceiverCooldown({ receiverCooldowns }, receiverKey);
+				cooldown.lastSentAt = Math.max(cooldown.lastSentAt, legacyCooldown.lastSentAt);
+				cooldown.nextSendAllowedAt = Math.max(cooldown.nextSendAllowedAt, legacyCooldown.nextSendAllowedAt);
+				cooldown.rateLimitBackoffUntil = Math.max(cooldown.rateLimitBackoffUntil, legacyCooldown.rateLimitBackoffUntil);
+			});
+			return {
+				tasks,
+				lastSentAt,
+				nextSendAllowedAt: legacyNextSendAllowedAt,
 				activeSendTaskId: String(source.activeSendTaskId || ""),
 				activeSendOwnerId: String(source.activeSendOwnerId || ""),
 				activeSendStartedAt: Math.max(0, Number(source.activeSendStartedAt) || 0),
 				activeSendSettleAt: Math.max(0, Number(source.activeSendSettleAt) || 0),
-				rateLimitBackoffUntil: Math.max(0, Number(source.rateLimitBackoffUntil) || 0),
+				rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
+				receiverCooldowns,
 				lock: source.lock && typeof source.lock === "object" ? source.lock : null,
 				heartbeats,
 				updatedAt: Math.max(0, Number(source.updatedAt) || 0)
@@ -1567,7 +1645,7 @@
 			if (queue.activeSendTaskId && (!activeTask || activeOwnerStale)) {
 				if (activeTask?.status === TASK_STATUS.SENDING) {
 					activeTask.status = TASK_STATUS.PENDING;
-					activeTask.dueAt = Math.max(now, this.getQueueNextSendAllowedAt(queue));
+					activeTask.dueAt = Math.max(now, this.getTaskNextSendAllowedAt(queue, activeTask));
 					activeTask.attemptOwnerId = "";
 				}
 				this.clearActiveSend(queue);
@@ -1647,15 +1725,13 @@
 			this.tryQueueLock((queue) => {
 				const task = this.getRetryableAttemptTask(queue);
 				if (!task) return;
-				queue.rateLimitBackoffUntil = Math.max(Number(queue.rateLimitBackoffUntil || 0), backoffUntil);
-				queue.nextSendAllowedAt = Math.max(Number(queue.nextSendAllowedAt || 0), backoffUntil);
-				this.rateLimitBackoffUntil = Math.max(this.rateLimitBackoffUntil, backoffUntil);
-				this.nativeSendBusyUntil = Math.max(this.nativeSendBusyUntil, backoffUntil);
+				this.setReceiverRateLimitBackoff(queue, task, backoffUntil);
 				this.requeueRateLimitedTask(queue, task, backoffUntil);
 				retryQueued = true;
 				this.options.log("warn", "Auto-send rate limited; task will retry", {
 					command: task.commandKey,
 					kind: task.kind,
+					receiverKey: this.getTaskReceiverKey(task),
 					retryInMs: backoffUntil - now
 				});
 			});
@@ -1886,6 +1962,7 @@
 			const pageKey = this.getPageKey();
 			const pageUrl = this.getPageUrl();
 			const pageCode = this.getPageCode();
+			const receiverKey = this.getReceiverKey(pageKey, pageCode);
 			const sendType = this.getSendType(config, "auto");
 			const taskKey = this.buildTaskKey(pageKey, config.key, sendType);
 			const startIndex = config.clickOnly ? 0 : this.getStartIndex(config, input, items);
@@ -1903,6 +1980,7 @@
 				pageKey,
 				pageUrl,
 				pageCode,
+				receiverKey,
 				stopped: false
 			};
 			let added = false;
@@ -1915,6 +1993,7 @@
 					existing.pageKey ||= pageKey;
 					existing.pageUrl ||= pageUrl;
 					existing.pageCode ||= pageCode;
+					existing.receiverKey ||= receiverKey;
 					existing.profileTitle = state.profileTitle;
 					existing.category ||= category;
 					existing.categoryId ||= startItem?.categoryId || "";
@@ -1932,6 +2011,7 @@
 					pageKey,
 					pageUrl,
 					pageCode,
+					receiverKey,
 					categoryId: startItem?.categoryId || "",
 					category,
 					profileTitle: state.profileTitle,
@@ -1995,6 +2075,7 @@
 				pageKey: task.pageKey || this.getPageKey(),
 				pageUrl: task.pageUrl || task.pageKey || this.getPageUrl(),
 				pageCode: task.pageCode || this.getPageCode(),
+				receiverKey: this.getTaskReceiverKey(task),
 				stopped: false
 			};
 		}
@@ -2062,8 +2143,7 @@
 				queue.tasks = [];
 				queue.nextSendAllowedAt = 0;
 				queue.rateLimitBackoffUntil = 0;
-				this.nextSendAllowedAt = 0;
-				this.rateLimitBackoffUntil = 0;
+				queue.receiverCooldowns = {};
 				this.clearActiveSend(queue);
 			});
 			this.renderManager();
@@ -2082,9 +2162,6 @@
 				this.scheduleSendButtonUnlock(button);
 			}
 		}
-		getQueueNextSendAllowedAt(queue) {
-			return Math.max(Number(queue?.nextSendAllowedAt || 0), Number(queue?.rateLimitBackoffUntil || 0), this.nextSendAllowedAt, this.rateLimitBackoffUntil);
-		}
 		hasActiveSend(queue) {
 			return Boolean(queue?.activeSendTaskId || this.activeSendTaskId || queue?.tasks?.some?.((task) => task.status === TASK_STATUS.SENDING));
 		}
@@ -2099,18 +2176,17 @@
 		beginTaskAttempt(queue, task) {
 			const attemptedAt = Date.now();
 			const nextAllowedAt = attemptedAt + this.getMinimumRequestIntervalMs();
-			const settleAt = Math.max(attemptedAt + SEND_SETTLE_MS, nextAllowedAt);
+			const settleAt = attemptedAt + SEND_SETTLE_MS;
 			task.status = TASK_STATUS.SENDING;
 			task.attemptedAt = attemptedAt;
 			task.attemptOwnerId = this.instanceId;
 			task.dueAt = settleAt;
 			queue.lastSentAt = attemptedAt;
-			queue.nextSendAllowedAt = Math.max(Number(queue.nextSendAllowedAt || 0), nextAllowedAt);
+			this.setReceiverAttemptCooldown(queue, task, attemptedAt, nextAllowedAt);
 			queue.activeSendTaskId = task.id;
 			queue.activeSendOwnerId = this.instanceId;
 			queue.activeSendStartedAt = attemptedAt;
 			queue.activeSendSettleAt = settleAt;
-			this.nextSendAllowedAt = Math.max(this.nextSendAllowedAt, nextAllowedAt);
 			this.activeSendTaskId = task.id;
 		}
 		clearAttemptFields(task) {
@@ -2145,7 +2221,7 @@
 				const nextIndex = Number.isFinite(Number(task.nextIndexAfterAttempt)) && Number(task.nextIndexAfterAttempt) >= 0 ? Number(task.nextIndexAfterAttempt) : Number(task.nextIndex || 0);
 				this.updateAutoTaskToNextItem(task, state, nextIndex);
 				this.clearAttemptFields(task);
-				task.dueAt = Math.max(attemptedAt + clampAutoSendInterval(task.taskIntervalSeconds) * 1e3, this.getQueueNextSendAllowedAt(queue));
+				task.dueAt = Math.max(attemptedAt + this.getBufferedIntervalMs(task.taskIntervalSeconds), this.getTaskNextSendAllowedAt(queue, task));
 			} else {
 				queue.tasks = queue.tasks.filter((item) => item.id !== task.id);
 				this.manualTasks.delete(task.id);
@@ -2174,7 +2250,7 @@
 			const task = this.getRetryableAttemptTask(queue);
 			const activeOwnerId = String(queue.activeSendOwnerId || task?.attemptOwnerId || "");
 			if (activeOwnerId && activeOwnerId !== this.instanceId && this.isOwnerAlive(queue, activeOwnerId, now)) return true;
-			const settleAt = Math.max(Number(queue.activeSendSettleAt || 0), Number(task?.dueAt || 0), Number(task?.attemptedAt || queue.activeSendStartedAt || 0) + SEND_SETTLE_MS, this.getQueueNextSendAllowedAt(queue));
+			const settleAt = Math.max(Number(queue.activeSendSettleAt || 0), Number(task?.dueAt || 0), Number(task?.attemptedAt || queue.activeSendStartedAt || 0) + SEND_SETTLE_MS);
 			if (this.isNativeSendBusy(now) || now < settleAt) return true;
 			if (task) this.completeAttemptedTask(queue, task, now);
 			else this.clearActiveSend(queue);
@@ -2227,9 +2303,10 @@
 			const state = this.states.get(task.commandKey);
 			return Boolean(state && state.taskId === task.id && !state.stopped && state.sendButton?.isConnected);
 		}
-		getNextRunnableTask(queue, now = Date.now()) {
+		getNextRunnableTask(queue, now = Date.now(), requireReceiverReady = false) {
 			const readyTasks = this.sortReadyTasks(queue.tasks.filter((task) => task.status !== TASK_STATUS.SENDING && Number(task.dueAt || 0) <= now));
 			for (const task of readyTasks) {
+				if (requireReceiverReady && now < this.getTaskNextSendAllowedAt(queue, task)) continue;
 				if (task.kind === "manual") {
 					if (task.ownerId === this.instanceId && this.manualTasks.has(task.id)) return task;
 					continue;
@@ -2254,14 +2331,12 @@
 				return;
 			}
 			if (this.isNativeSendBusy(snapshotNow)) return;
-			if (snapshotNow < this.getQueueNextSendAllowedAt(snapshot)) return;
-			if (!this.getNextRunnableTask(snapshot, snapshotNow)) return;
+			if (!this.getNextRunnableTask(snapshot, snapshotNow, true)) return;
 			this.tryQueueLock((queue) => {
 				const now = Date.now();
 				if (this.settleActiveSend(queue, now)) return;
 				if (this.isNativeSendBusy(now)) return;
-				if (now < this.getQueueNextSendAllowedAt(queue)) return;
-				const task = this.getNextRunnableTask(queue, now);
+				const task = this.getNextRunnableTask(queue, now, true);
 				if (!task) return;
 				const result = task.kind === "manual" ? this.runManualTask(queue, task) : this.runAutoTask(queue, task);
 				if (result === "skip") return;
@@ -2309,6 +2384,26 @@
 			if (!input) return true;
 			return isCaptureValueValid(validationConfig, String(input.value || "").trim());
 		}
+		enqueueManualTask(task, state, attempt = 0) {
+			this.manualTasks.set(task.id, state);
+			if (this.tryQueueLock((queue) => {
+				if (queue.tasks.some((item) => item.id === task.id)) return;
+				task.sequence = this.getNextSequence(queue);
+				queue.tasks.unshift(task);
+			})) {
+				this.processDueQueue();
+				return;
+			}
+			if (attempt < 8) {
+				const retryDelay = Math.min(LOCK_TTL_MS, 150 + attempt * 150);
+				window.setTimeout(() => {
+					if (this.manualTasks.has(task.id)) this.enqueueManualTask(task, state, attempt + 1);
+				}, retryDelay);
+				return;
+			}
+			this.manualTasks.delete(task.id);
+			this.options.notifySite("Auto-send queue is busy. Try again.", "error");
+		}
 		captureManualSend(event) {
 			if (!(event.target instanceof Element)) return;
 			const button = event.target.closest("[data-send]");
@@ -2330,6 +2425,7 @@
 			const pageKey = this.getPageKey();
 			const pageUrl = this.getPageUrl();
 			const pageCode = this.getPageCode();
+			const receiverKey = this.getReceiverKey(pageKey, pageCode);
 			const sendType = this.getSendType(config, "manual");
 			const taskKey = this.buildTaskKey(pageKey, commandKey, sendType);
 			const now = Date.now();
@@ -2345,24 +2441,16 @@
 				pageKey,
 				pageUrl,
 				pageCode,
+				receiverKey,
 				createdAt: now,
 				dueAt: now,
 				sequence: now,
 				status: TASK_STATUS.PENDING
 			};
-			this.manualTasks.set(taskId, {
+			this.enqueueManualTask(task, {
 				button,
 				snapshot
 			});
-			if (!this.tryQueueLock((queue) => {
-				task.sequence = this.getNextSequence(queue);
-				queue.tasks.unshift(task);
-			})) {
-				this.manualTasks.delete(taskId);
-				this.options.notifySite("Auto-send queue is busy. Try again.", "error");
-				return;
-			}
-			this.processDueQueue();
 		}
 		getOrCreateControlHost(sendButton) {
 			const parent = sendButton.parentElement;
@@ -2453,8 +2541,10 @@
 			const dueAt = Number(task?.dueAt || 0);
 			if (dueAt > now) return dueAt;
 			if (!this.isTaskActiveForDisplay(queue, task, now)) return Number.MAX_SAFE_INTEGER;
-			const readyIndex = Math.max(0, readyTasks.findIndex((item) => item.id === task.id));
-			return Math.max(now, this.getQueueNextSendAllowedAt(queue)) + readyIndex * this.getMinimumRequestIntervalMs();
+			const receiverKey = this.getTaskReceiverKey(task);
+			const receiverReadyTasks = readyTasks.filter((item) => this.getTaskReceiverKey(item) === receiverKey);
+			const readyIndex = Math.max(0, receiverReadyTasks.findIndex((item) => item.id === task.id));
+			return Math.max(now, this.getTaskNextSendAllowedAt(queue, task)) + readyIndex * this.getMinimumRequestIntervalMs();
 		}
 		getOrderedTasks(queue, now = Date.now()) {
 			const readyTasks = this.getReadyDisplayTasks(queue, now);
@@ -2471,7 +2561,7 @@
 			const dueAt = Number(task?.dueAt || 0);
 			const taskRemaining = Math.max(0, dueAt - now);
 			if (taskRemaining > 0) {
-				const intervalMs = Math.max(1, clampAutoSendInterval(task.taskIntervalSeconds) * 1e3);
+				const intervalMs = Math.max(1, this.getBufferedIntervalMs(task.taskIntervalSeconds));
 				const elapsed = intervalMs - Math.min(intervalMs, taskRemaining);
 				return Math.max(0, Math.min(100, elapsed / intervalMs * 100));
 			}
@@ -7631,9 +7721,9 @@
 		setMinimumRequestInterval(seconds, options = {}) {
 			const nextInterval = clampMinimumRequestInterval(seconds);
 			this.dbState.minimumRequestIntervalSeconds = nextInterval;
-			log("info", "Auto-send minimum request interval changed", { seconds: nextInterval });
-			this.saveDbState("auto-send minimum request interval changed");
-			if (options.status !== false) setManagerStatus(`Auto-send min request interval: ${nextInterval}s`, "info");
+			log("info", "Auto-send per-receiver minimum request interval changed", { seconds: nextInterval });
+			this.saveDbState("auto-send per-receiver minimum request interval changed");
+			if (options.status !== false) setManagerStatus(`Auto-send per-receiver min request interval: ${nextInterval}s`, "info");
 		}
 		setUploaderSetting(name, value) {
 			if (!Object.prototype.hasOwnProperty.call(this.uploaderSettings, name)) return;

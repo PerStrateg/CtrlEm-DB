@@ -1,0 +1,60 @@
+[     561ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/css2:0
+[     938ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image:0
+[    1361ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(1):0
+[    1480ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(4):0
+[    1801ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(3):0
+[    2368ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(2):0
+[    2388ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(5):0
+[    2403ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/file:0
+[    2418ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/notifications/counts:0
+[    2419ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[    3149ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(6):0
+[    3162ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(7):0
+[    3570ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(9):0
+[    4411ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(8):0
+[    4425ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(10):0
+[    4428ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(11):0
+[    4440ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(12):0
+[    4442ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/image(13):0
+[    4447ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/file(1):0
+[    4976ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/file(2):0
+[    4989ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/file(3):0
+[    4996ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://127.0.0.1:5173/test-webpage/test2_files/file(4):0
+[    5462ms] [INFO] [CtrlEm DB] DB state loaded {links: Object, text: Object, image: Object, sound: Object, video: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5462ms] [INFO] [CtrlEm DB] Script started {href: http://127.0.0.1:5173/test-webpage/test2.htm, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5464ms] [INFO] [CtrlEm DB] DB button mounted {selector: .panel--commands .panel-head} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5466ms] [INFO] [CtrlEm DB] Text picker mounted {command: openPage, type: links, selector: #val-openPage, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5466ms] [INFO] [CtrlEm DB] Text picker mounted {command: sendMessage, type: text, selector: #val-sendMessage, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5467ms] [INFO] [CtrlEm DB] Text picker mounted {command: writeForMe, type: text, selector: #val-writeForMe-text, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5467ms] [INFO] [CtrlEm DB] Text picker mounted {command: videoOverlay, type: video, selector: #val-videoOverlay, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5467ms] [INFO] [CtrlEm DB] Text picker mounted {command: popupSound, type: sound, selector: #val-popupSound, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5468ms] [INFO] [CtrlEm DB] Site media UI hidden {command: popupImage, count: 15} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5469ms] [INFO] [CtrlEm DB] Site media UI hidden {command: changeWallpaper, count: 1} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5471ms] [INFO] [CtrlEm DB] Upload panel mounted {command: popupImage, tools: Array(2), native: true} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5471ms] [INFO] [CtrlEm DB] Upload panel mounted {command: changeWallpaper, tools: Array(2), native: true} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5472ms] [INFO] [CtrlEm DB] Upload panel mounted {command: popupSound, tools: Array(1), native: true} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5472ms] [INFO] [CtrlEm DB] Upload panel mounted {command: videoOverlay, tools: Array(2), native: false} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5473ms] [INFO] [CtrlEm DB] Auto-send controls mounted @ http://127.0.0.1:5173/src/logger.ts:5
+[    5484ms] [INFO] [CtrlEm DB] Default loaded {command: popupImage, count: 14, dom: 14, api: 0} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5484ms] [INFO] [CtrlEm DB] Default loaded {command: changeWallpaper, count: 14, dom: 14, api: 0} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5487ms] [INFO] [CtrlEm DB] Media picker mounted {command: popupImage, type: image, categories: 4, items: 17} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5487ms] [INFO] [CtrlEm DB] Media picker mounted {command: changeWallpaper, type: image, categories: 4, items: 17} @ http://127.0.0.1:5173/src/logger.ts:8
+[    5488ms] [INFO] Images loaded lazily and replaced with placeholders. Load events are deferred. See https://go.microsoft.com/fwlink/?linkid=2048113 @ http://127.0.0.1:5173/dev.html:0
+[   10840ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   20853ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   30861ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   40867ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   44107ms] [INFO] [CtrlEm DB] DB manager opened @ http://127.0.0.1:5173/src/logger.ts:5
+[   50876ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   60875ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   63278ms] [INFO] [CtrlEm DB] Manager type changed {type: text} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63280ms] [INFO] [CtrlEm DB] DB state saved {reason: type changed, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63285ms] [INFO] [CtrlEm DB] Text picker mounted {command: openPage, type: links, selector: #val-openPage, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63285ms] [INFO] [CtrlEm DB] Text picker mounted {command: sendMessage, type: text, selector: #val-sendMessage, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63286ms] [INFO] [CtrlEm DB] Text picker mounted {command: writeForMe, type: text, selector: #val-writeForMe-text, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63287ms] [INFO] [CtrlEm DB] Text picker mounted {command: videoOverlay, type: video, selector: #val-videoOverlay, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63288ms] [INFO] [CtrlEm DB] Text picker mounted {command: popupSound, type: sound, selector: #val-popupSound, summary: Object} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63290ms] [INFO] [CtrlEm DB] Default loaded {command: popupImage, count: 14, dom: 14, api: 0} @ http://127.0.0.1:5173/src/logger.ts:8
+[   63291ms] [INFO] [CtrlEm DB] Default loaded {command: changeWallpaper, count: 14, dom: 14, api: 0} @ http://127.0.0.1:5173/src/logger.ts:8
+[   70855ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0
+[   80893ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5173/api/u/KPD0M/received-data?page=1&limit=20:0

@@ -1,0 +1,156 @@
+- generic [active] [ref=e1]:
+  - iframe [ref=e2]:
+    - generic [active] [ref=f1e1]:
+      - navigation [ref=f1e2]:
+        - generic [ref=f1e3]:
+          - link "CtrlEm" [ref=f1e4] [cursor=pointer]:
+            - /url: https://ctrlem.com/
+          - link "Discord" [ref=f1e5] [cursor=pointer]:
+            - /url: https://discord.gg/ctrlem
+            - img [ref=f1e6]
+            - generic [ref=f1e8]: Discord
+          - link "Donate" [ref=f1e9] [cursor=pointer]:
+            - /url: https://throne.com/strawberryemmaz
+            - img [ref=f1e10]
+            - generic [ref=f1e12]: Donate
+        - generic [ref=f1e13]:
+          - link "Home" [ref=f1e14] [cursor=pointer]:
+            - /url: https://ctrlem.com/
+          - link "Users" [ref=f1e15] [cursor=pointer]:
+            - /url: https://ctrlem.com/users
+          - link "Groups" [ref=f1e16] [cursor=pointer]:
+            - /url: https://ctrlem.com/groups
+          - link "Friends" [ref=f1e17] [cursor=pointer]:
+            - /url: https://ctrlem.com/friends
+            - img [ref=f1e18]
+          - link "Messages" [ref=f1e23] [cursor=pointer]:
+            - /url: https://ctrlem.com/chat
+            - img [ref=f1e24]
+          - link "Dashboard" [ref=f1e26] [cursor=pointer]:
+            - /url: https://ctrlem.com/dashboard
+          - generic [ref=f1e27]:
+            - img "Avatar" [ref=f1e28]
+            - generic [ref=f1e29]: strateg94
+            - link "Logout" [ref=f1e30] [cursor=pointer]:
+              - /url: https://ctrlem.com/auth/logout
+      - main [ref=f1e31]:
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]:
+            - img "Avatar" [ref=f1e35]
+            - generic [ref=f1e36]:
+              - heading "strateg94 ✓" [level=1] [ref=f1e37]:
+                - text: strateg94
+                - generic "Verified" [ref=f1e38]: ✓
+              - generic [ref=f1e39]: Online
+              - generic [ref=f1e40]:
+                - text: "Control Code:"
+                - code [ref=f1e41]: KPD0M
+              - generic [ref=f1e42]:
+                - generic [ref=f1e43]: 1,001
+                - generic [ref=f1e44]: commands sent
+          - generic [ref=f1e45]:
+            - generic [ref=f1e46]:
+              - heading "💚 Likes" [level=3] [ref=f1e47]
+              - paragraph [ref=f1e48]: etc..
+            - generic [ref=f1e49]:
+              - heading "🚫 Limits" [level=3] [ref=f1e50]
+              - paragraph [ref=f1e51]: etc
+            - generic [ref=f1e52]:
+              - heading "📝 Notes" [level=3] [ref=f1e53]
+              - paragraph [ref=f1e54]: DISTRACT ME WHILE I WORK! Surprise me =) Feel free to screenshot (while availible) and upload everything!
+          - generic [ref=f1e55]:
+            - button "Windows" [ref=f1e56] [cursor=pointer]:
+              - img [ref=f1e57]
+              - generic [ref=f1e59]: Windows
+            - button "Android" [ref=f1e61] [cursor=pointer]:
+              - img [ref=f1e62]
+              - generic [ref=f1e64]: Android
+          - generic [ref=f1e66]:
+            - generic [ref=f1e67]:
+              - generic [ref=f1e68]:
+                - generic [ref=f1e69]:
+                  - heading "Commands" [level=2] [ref=f1e70]
+                  - paragraph [ref=f1e71]: Click a command to open options.
+                - button "Open DB manager" [ref=f1e72] [cursor=pointer]: DB
+              - generic [ref=f1e73]:
+                - button "Screenshot ▾" [ref=f1e75] [cursor=pointer]:
+                  - generic [ref=f1e76]: Screenshot
+                  - generic [ref=f1e77]: ▾
+                - button "Lock Input ▾" [ref=f1e79] [cursor=pointer]:
+                  - generic [ref=f1e80]: Lock Input
+                  - generic [ref=f1e81]: ▾
+                - button "Blank Screen ▾" [ref=f1e83] [cursor=pointer]:
+                  - generic [ref=f1e84]: Blank Screen
+                  - generic [ref=f1e85]: ▾
+                - button "Open Page ▾" [ref=f1e87] [cursor=pointer]:
+                  - generic [ref=f1e88]: Open Page
+                  - generic [ref=f1e89]: ▾
+                - generic [ref=f1e90]:
+                  - button "Popup Image ▾" [ref=f1e91] [cursor=pointer]:
+                    - generic [ref=f1e92]: Popup Image
+                    - generic [ref=f1e93]: ▾
+                  - text: Show previews
+                - generic [ref=f1e94]:
+                  - button "Change Wallpaper ▾" [ref=f1e95] [cursor=pointer]:
+                    - generic [ref=f1e96]: Change Wallpaper
+                    - generic [ref=f1e97]: ▾
+                  - text: Show previews
+                - button "Send Message ▾" [ref=f1e99] [cursor=pointer]:
+                  - generic [ref=f1e100]: Send Message
+                  - generic [ref=f1e101]: ▾
+                - button "Popup Sound ▾" [ref=f1e103] [cursor=pointer]:
+                  - generic [ref=f1e104]: Popup Sound
+                  - generic [ref=f1e105]: ▾
+                - button "Send or Delete ▾" [ref=f1e107] [cursor=pointer]:
+                  - generic [ref=f1e108]: Send or Delete
+                  - generic [ref=f1e109]: ▾
+                - button "Video Overlay ▾" [ref=f1e111] [cursor=pointer]:
+                  - generic [ref=f1e112]: Video Overlay
+                  - generic [ref=f1e113]: ▾
+                - button "Write For Me ▾" [ref=f1e115] [cursor=pointer]:
+                  - generic [ref=f1e116]: Write For Me
+                  - generic [ref=f1e117]: ▾
+                - button "Session ▾" [ref=f1e119] [cursor=pointer]:
+                  - generic [ref=f1e120]: Session
+                  - generic [ref=f1e121]: ▾
+            - generic [ref=f1e122]:
+              - generic [ref=f1e123]:
+                - generic [ref=f1e124]:
+                  - heading "Results" [level=2] [ref=f1e125]
+                  - paragraph [ref=f1e126]: Responses, screenshots, webcam captures, and status updates.
+                - generic [ref=f1e127]:
+                  - button "Refresh" [ref=f1e128] [cursor=pointer]
+                  - generic "Toggle auto-refresh" [ref=f1e129]:
+                    - checkbox [checked]
+                  - generic [ref=f1e131]: Auto
+              - paragraph [ref=f1e134]: Unable to load results
+              - generic [ref=f1e135]:
+                - button "Prev" [disabled] [ref=f1e136]
+                - generic [ref=f1e137]: Page 1 of 2
+                - button "Next" [ref=f1e138] [cursor=pointer]
+      - contentinfo [ref=f1e139]:
+        - generic [ref=f1e140]:
+          - generic [ref=f1e141]:
+            - link "FAQ" [ref=f1e142] [cursor=pointer]:
+              - /url: https://ctrlem.com/faq
+            - link "Terms" [ref=f1e143] [cursor=pointer]:
+              - /url: https://ctrlem.com/terms
+            - link "Privacy" [ref=f1e144] [cursor=pointer]:
+              - /url: https://ctrlem.com/privacy
+          - generic [ref=f1e146]:
+            - generic [ref=f1e147]: Donation Goal
+            - generic [ref=f1e148]: $300 / $150
+        - generic [ref=f1e151]: © 2026 CtrlEm
+  - generic [ref=e5]:
+    - generic [ref=e6]: "[plugin:vite:import-analysis] Failed to parse source for import analysis because the content contains invalid JS syntax. If you are using JSX, make sure to name the file with the .jsx or .tsx extension."
+    - generic [ref=e7]: /home/strat/projects/CtrlEm-DB/test-webpage/test2_files/file(4)
+    - generic [ref=e9]: at TransformPluginContext._formatLog (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:30486:39) at TransformPluginContext.error (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:30483:14) at TransformPluginContext.transform (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:27689:10) at async EnvironmentPluginContainer.transform (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:30271:14) at async loadAndTransform (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:24532:26) at async viteTransformMiddleware (file:///home/strat/projects/CtrlEm-DB/node_modules/vite/dist/node/chunks/node.js:24326:20)
+    - generic [ref=e10]:
+      - text: Click outside, press Esc key, or fix the code to dismiss.
+      - text: You can also disable this overlay by setting
+      - code [ref=e11]: server.hmr.overlay
+      - text: to
+      - code [ref=e12]: "false"
+      - text: in
+      - code [ref=e13]: vite.config.ts
+      - text: .

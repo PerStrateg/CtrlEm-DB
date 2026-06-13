@@ -26,6 +26,7 @@ const RUNNER_MS = USER_CONFIG.autoSend.runnerMs;
 const NATIVE_SEND_DISABLED_GRACE_MS = 1000;
 const NATIVE_SEND_REQUEST_GRACE_MS = 250;
 const SEND_SETTLE_MS = 1500;
+const INTERVAL_BUFFER_MS = 100;
 const RATE_LIMIT_BACKOFF_MIN_MS = 5000;
 const RATE_LIMIT_BACKOFF_MAX_MS = 20000;
 
@@ -59,11 +60,7 @@ export class AutoSendController {
 
   private nativeSendBusyUntil = 0;
 
-  private nextSendAllowedAt = 0;
-
   private activeSendTaskId = '';
-
-  private rateLimitBackoffUntil = 0;
 
   private managerCollapsed = false;
 
@@ -88,11 +85,15 @@ export class AutoSendController {
 
   getIntervalMs(): number {
     const seconds = clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
-    return seconds * 1000;
+    return this.getBufferedIntervalMs(seconds);
   }
 
   getIntervalSeconds(): number {
     return clampAutoSendInterval(this.options.getState()?.autoSendIntervalSeconds);
+  }
+
+  getBufferedIntervalMs(seconds: unknown): number {
+    return clampAutoSendInterval(seconds) * 1000 + INTERVAL_BUFFER_MS;
   }
 
   getMinimumRequestIntervalMs(): number {
@@ -135,6 +136,18 @@ export class AutoSendController {
 
   getPageUrl(): string {
     return window.location.href;
+  }
+
+  getReceiverKey(pageKey = this.getPageKey(), pageCode = this.getPageCode()): string {
+    const normalizedPageKey = String(pageKey || '').trim();
+    if (normalizedPageKey) return normalizedPageKey;
+
+    const normalizedPageCode = String(pageCode || '').trim();
+    return normalizedPageCode ? `code:${normalizedPageCode}` : 'current';
+  }
+
+  getTaskReceiverKey(task: any): string {
+    return String(task?.receiverKey || '').trim() || this.getReceiverKey(task?.pageKey, task?.pageCode);
   }
 
   getSendType(config: any, kind: string): string {
@@ -268,6 +281,7 @@ export class AutoSendController {
       activeSendStartedAt: 0,
       activeSendSettleAt: 0,
       rateLimitBackoffUntil: 0,
+      receiverCooldowns: {},
       lock: null,
       heartbeats: {},
       updatedAt: Date.now(),
@@ -284,10 +298,71 @@ export class AutoSendController {
     return '';
   }
 
+  normalizeReceiverCooldown(source: any): any {
+    const cooldown = source && typeof source === 'object' ? source : {};
+    return {
+      lastSentAt: Math.max(0, Number(cooldown.lastSentAt) || 0),
+      nextSendAllowedAt: Math.max(0, Number(cooldown.nextSendAllowedAt) || 0),
+      rateLimitBackoffUntil: Math.max(0, Number(cooldown.rateLimitBackoffUntil) || 0),
+    };
+  }
+
+  normalizeReceiverCooldowns(source: any): any {
+    const cooldowns: any = {};
+    if (!source || typeof source !== 'object') return cooldowns;
+
+    Object.keys(source).forEach((receiverKey) => {
+      const key = String(receiverKey || '').trim();
+      if (!key) return;
+      cooldowns[key] = this.normalizeReceiverCooldown(source[receiverKey]);
+    });
+
+    return cooldowns;
+  }
+
+  getReceiverCooldown(queue: any, receiverKey: string): any {
+    const key = String(receiverKey || '').trim() || this.getReceiverKey();
+    const source = queue?.receiverCooldowns?.[key];
+    return this.normalizeReceiverCooldown(source);
+  }
+
+  ensureReceiverCooldown(queue: any, receiverKey: string): any {
+    const key = String(receiverKey || '').trim() || this.getReceiverKey();
+    queue.receiverCooldowns ||= {};
+    queue.receiverCooldowns[key] = this.normalizeReceiverCooldown(queue.receiverCooldowns[key]);
+    return queue.receiverCooldowns[key];
+  }
+
+  getReceiverNextSendAllowedAt(queue: any, receiverKey: string): number {
+    const cooldown = this.getReceiverCooldown(queue, receiverKey);
+    return Math.max(
+      Number(cooldown.nextSendAllowedAt || 0),
+      Number(cooldown.rateLimitBackoffUntil || 0),
+    );
+  }
+
+  getTaskNextSendAllowedAt(queue: any, task: any): number {
+    return this.getReceiverNextSendAllowedAt(queue, this.getTaskReceiverKey(task));
+  }
+
+  setReceiverAttemptCooldown(queue: any, task: any, attemptedAt: number, nextAllowedAt: number): void {
+    const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
+    cooldown.lastSentAt = Math.max(Number(cooldown.lastSentAt || 0), attemptedAt);
+    cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), nextAllowedAt);
+  }
+
+  setReceiverRateLimitBackoff(queue: any, task: any, backoffUntil: number): void {
+    const cooldown = this.ensureReceiverCooldown(queue, this.getTaskReceiverKey(task));
+    cooldown.rateLimitBackoffUntil = Math.max(Number(cooldown.rateLimitBackoffUntil || 0), backoffUntil);
+    cooldown.nextSendAllowedAt = Math.max(Number(cooldown.nextSendAllowedAt || 0), backoffUntil);
+  }
+
   normalizeTask(task: any, index: number): any {
     const createdAt = Math.max(0, Number(task.createdAt) || Date.now());
     const sequence = Number.isFinite(Number(task.sequence)) ? Number(task.sequence) : createdAt + index;
     const hasTaskInterval = task.taskIntervalSeconds !== undefined && task.taskIntervalSeconds !== null && task.taskIntervalSeconds !== '';
+    const pageKey = String(task.pageKey || '').trim();
+    const pageCode = String(task.pageCode || '').trim();
     return {
       ...task,
       id: String(task.id || ''),
@@ -296,9 +371,10 @@ export class AutoSendController {
       ownerId: String(task.ownerId || ''),
       commandKey: String(task.commandKey || ''),
       sendType: String(task.sendType || task.kind || ''),
-      pageKey: String(task.pageKey || '').trim(),
+      pageKey,
       pageUrl: String(task.pageUrl || task.pageKey || '').trim(),
-      pageCode: String(task.pageCode || '').trim(),
+      pageCode,
+      receiverKey: String(task.receiverKey || '').trim() || this.getReceiverKey(pageKey, pageCode),
       categoryId: String(task.categoryId || ''),
       category: String(task.category || ''),
       itemValue: String(task.itemValue || ''),
@@ -320,19 +396,40 @@ export class AutoSendController {
     const heartbeats = source.heartbeats && typeof source.heartbeats === 'object' ? source.heartbeats : {};
     const lastSentAt = Math.max(0, Number(source.lastSentAt) || 0);
     const migratedNextAllowedAt = lastSentAt > 0 ? lastSentAt + this.getMinimumRequestIntervalMs() : 0;
-    return {
-      tasks: Array.isArray(source.tasks)
-        ? source.tasks
-          .map((task: any, index: number) => this.normalizeTask(task, index))
-          .filter((task: any) => task.id && task.key && task.kind && task.commandKey)
-        : [],
+    const tasks = Array.isArray(source.tasks)
+      ? source.tasks
+        .map((task: any, index: number) => this.normalizeTask(task, index))
+        .filter((task: any) => task.id && task.key && task.kind && task.commandKey)
+      : [];
+    const legacyNextSendAllowedAt = Math.max(0, Number(source.nextSendAllowedAt) || migratedNextAllowedAt);
+    const legacyRateLimitBackoffUntil = Math.max(0, Number(source.rateLimitBackoffUntil) || 0);
+    const receiverCooldowns = this.normalizeReceiverCooldowns(source.receiverCooldowns);
+    const legacyCooldown = this.normalizeReceiverCooldown({
       lastSentAt,
-      nextSendAllowedAt: Math.max(0, Number(source.nextSendAllowedAt) || migratedNextAllowedAt),
+      nextSendAllowedAt: legacyNextSendAllowedAt,
+      rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
+    });
+    if (legacyCooldown.lastSentAt || legacyCooldown.nextSendAllowedAt || legacyCooldown.rateLimitBackoffUntil) {
+      const receiverKeys = new Set<string>(tasks.length
+        ? tasks.map((task: any) => this.getTaskReceiverKey(task))
+        : [this.getReceiverKey()]);
+      receiverKeys.forEach((receiverKey) => {
+        const cooldown = this.ensureReceiverCooldown({ receiverCooldowns }, receiverKey);
+        cooldown.lastSentAt = Math.max(cooldown.lastSentAt, legacyCooldown.lastSentAt);
+        cooldown.nextSendAllowedAt = Math.max(cooldown.nextSendAllowedAt, legacyCooldown.nextSendAllowedAt);
+        cooldown.rateLimitBackoffUntil = Math.max(cooldown.rateLimitBackoffUntil, legacyCooldown.rateLimitBackoffUntil);
+      });
+    }
+    return {
+      tasks,
+      lastSentAt,
+      nextSendAllowedAt: legacyNextSendAllowedAt,
       activeSendTaskId: String(source.activeSendTaskId || ''),
       activeSendOwnerId: String(source.activeSendOwnerId || ''),
       activeSendStartedAt: Math.max(0, Number(source.activeSendStartedAt) || 0),
       activeSendSettleAt: Math.max(0, Number(source.activeSendSettleAt) || 0),
-      rateLimitBackoffUntil: Math.max(0, Number(source.rateLimitBackoffUntil) || 0),
+      rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
+      receiverCooldowns,
       lock: source.lock && typeof source.lock === 'object' ? source.lock : null,
       heartbeats,
       updatedAt: Math.max(0, Number(source.updatedAt) || 0),
@@ -386,7 +483,7 @@ export class AutoSendController {
     if (queue.activeSendTaskId && (!activeTask || activeOwnerStale)) {
       if (activeTask?.status === TASK_STATUS.SENDING) {
         activeTask.status = TASK_STATUS.PENDING;
-        activeTask.dueAt = Math.max(now, this.getQueueNextSendAllowedAt(queue));
+        activeTask.dueAt = Math.max(now, this.getTaskNextSendAllowedAt(queue, activeTask));
         activeTask.attemptOwnerId = '';
       }
       this.clearActiveSend(queue);
@@ -486,16 +583,13 @@ export class AutoSendController {
       const task = this.getRetryableAttemptTask(queue);
       if (!task) return;
 
-      queue.rateLimitBackoffUntil = Math.max(Number(queue.rateLimitBackoffUntil || 0), backoffUntil);
-      queue.nextSendAllowedAt = Math.max(Number(queue.nextSendAllowedAt || 0), backoffUntil);
-      this.rateLimitBackoffUntil = Math.max(this.rateLimitBackoffUntil, backoffUntil);
-      this.nativeSendBusyUntil = Math.max(this.nativeSendBusyUntil, backoffUntil);
-
+      this.setReceiverRateLimitBackoff(queue, task, backoffUntil);
       this.requeueRateLimitedTask(queue, task, backoffUntil);
       retryQueued = true;
       this.options.log('warn', 'Auto-send rate limited; task will retry', {
         command: task.commandKey,
         kind: task.kind,
+        receiverKey: this.getTaskReceiverKey(task),
         retryInMs: backoffUntil - now,
       });
     });
@@ -791,6 +885,7 @@ export class AutoSendController {
     const pageKey = this.getPageKey();
     const pageUrl = this.getPageUrl();
     const pageCode = this.getPageCode();
+    const receiverKey = this.getReceiverKey(pageKey, pageCode);
     const sendType = this.getSendType(config, 'auto');
     const taskKey = this.buildTaskKey(pageKey, config.key, sendType);
     const startIndex = config.clickOnly ? 0 : this.getStartIndex(config, input, items);
@@ -809,6 +904,7 @@ export class AutoSendController {
       pageKey,
       pageUrl,
       pageCode,
+      receiverKey,
       stopped: false,
     };
 
@@ -825,6 +921,7 @@ export class AutoSendController {
         existing.pageKey ||= pageKey;
         existing.pageUrl ||= pageUrl;
         existing.pageCode ||= pageCode;
+        existing.receiverKey ||= receiverKey;
         existing.profileTitle = state.profileTitle;
         existing.category ||= category;
         existing.categoryId ||= startItem?.categoryId || '';
@@ -843,6 +940,7 @@ export class AutoSendController {
         pageKey,
         pageUrl,
         pageCode,
+        receiverKey,
         categoryId: startItem?.categoryId || '',
         category,
         profileTitle: state.profileTitle,
@@ -851,7 +949,7 @@ export class AutoSendController {
         nextIndex: startIndex,
         taskIntervalSeconds: this.getIntervalSeconds(),
         createdAt: now,
-        dueAt: now, // Ready immediately (subject only to the global request interval)
+        dueAt: now, // Ready immediately, subject only to this receiver's request interval.
         sequence: this.getNextSequence(queue),
         status: TASK_STATUS.PENDING,
       });
@@ -920,6 +1018,7 @@ export class AutoSendController {
       pageKey: task.pageKey || this.getPageKey(),
       pageUrl: task.pageUrl || task.pageKey || this.getPageUrl(),
       pageCode: task.pageCode || this.getPageCode(),
+      receiverKey: this.getTaskReceiverKey(task),
       stopped: false,
     };
   }
@@ -1005,8 +1104,7 @@ export class AutoSendController {
       queue.tasks = [];
       queue.nextSendAllowedAt = 0;
       queue.rateLimitBackoffUntil = 0;
-      this.nextSendAllowedAt = 0;
-      this.rateLimitBackoffUntil = 0;
+      queue.receiverCooldowns = {};
       this.clearActiveSend(queue);
     });
     this.renderManager();
@@ -1025,15 +1123,6 @@ export class AutoSendController {
       }, 0);
       this.scheduleSendButtonUnlock(button);
     }
-  }
-
-  getQueueNextSendAllowedAt(queue: any): number {
-    return Math.max(
-      Number(queue?.nextSendAllowedAt || 0),
-      Number(queue?.rateLimitBackoffUntil || 0),
-      this.nextSendAllowedAt,
-      this.rateLimitBackoffUntil,
-    );
   }
 
   hasActiveSend(queue: any): boolean {
@@ -1058,7 +1147,7 @@ export class AutoSendController {
   beginTaskAttempt(queue: any, task: any): void {
     const attemptedAt = Date.now();
     const nextAllowedAt = attemptedAt + this.getMinimumRequestIntervalMs();
-    const settleAt = Math.max(attemptedAt + SEND_SETTLE_MS, nextAllowedAt);
+    const settleAt = attemptedAt + SEND_SETTLE_MS;
 
     task.status = TASK_STATUS.SENDING;
     task.attemptedAt = attemptedAt;
@@ -1066,13 +1155,12 @@ export class AutoSendController {
     task.dueAt = settleAt;
 
     queue.lastSentAt = attemptedAt;
-    queue.nextSendAllowedAt = Math.max(Number(queue.nextSendAllowedAt || 0), nextAllowedAt);
+    this.setReceiverAttemptCooldown(queue, task, attemptedAt, nextAllowedAt);
     queue.activeSendTaskId = task.id;
     queue.activeSendOwnerId = this.instanceId;
     queue.activeSendStartedAt = attemptedAt;
     queue.activeSendSettleAt = settleAt;
 
-    this.nextSendAllowedAt = Math.max(this.nextSendAllowedAt, nextAllowedAt);
     this.activeSendTaskId = task.id;
   }
 
@@ -1117,8 +1205,8 @@ export class AutoSendController {
       this.updateAutoTaskToNextItem(task, state, nextIndex);
       this.clearAttemptFields(task);
       task.dueAt = Math.max(
-        attemptedAt + clampAutoSendInterval(task.taskIntervalSeconds) * 1000,
-        this.getQueueNextSendAllowedAt(queue),
+        attemptedAt + this.getBufferedIntervalMs(task.taskIntervalSeconds),
+        this.getTaskNextSendAllowedAt(queue, task),
       );
     } else {
       queue.tasks = queue.tasks.filter((item: any) => item.id !== task.id);
@@ -1165,7 +1253,6 @@ export class AutoSendController {
       Number(queue.activeSendSettleAt || 0),
       Number(task?.dueAt || 0),
       Number(task?.attemptedAt || queue.activeSendStartedAt || 0) + SEND_SETTLE_MS,
-      this.getQueueNextSendAllowedAt(queue),
     );
 
     if (this.isNativeSendBusy(now) || now < settleAt) return true;
@@ -1238,12 +1325,14 @@ export class AutoSendController {
     );
   }
 
-  getNextRunnableTask(queue: any, now = Date.now()): any {
+  getNextRunnableTask(queue: any, now = Date.now(), requireReceiverReady = false): any {
     const readyTasks = this.sortReadyTasks(
       queue.tasks.filter((task: any) => task.status !== TASK_STATUS.SENDING && Number(task.dueAt || 0) <= now),
     );
 
     for (const task of readyTasks) {
+      if (requireReceiverReady && now < this.getTaskNextSendAllowedAt(queue, task)) continue;
+
       if (task.kind === 'manual') {
         if (task.ownerId === this.instanceId && this.manualTasks.has(task.id)) return task;
         continue;
@@ -1264,7 +1353,7 @@ export class AutoSendController {
    * 1. Collect all tasks with dueAt <= now (ready by their own interval).
    * 2. Sort by nearest dueAt.
    * 3. Pick the first ready task that this tab is allowed to execute.
-   * 4. Check executor cooldown: now >= nextSendAllowedAt.
+   * 4. Check receiver cooldown: now >= receiver nextSendAllowedAt.
    * 5. Execute the task (auto or manual) as an attempted native send.
    * 6. Settle the attempt after the cooldown window, or requeue it if rate-limited.
    */
@@ -1284,18 +1373,16 @@ export class AutoSendController {
       return;
     }
     if (this.isNativeSendBusy(snapshotNow)) return;
-    if (snapshotNow < this.getQueueNextSendAllowedAt(snapshot)) return;
 
-    const snapshotTask = this.getNextRunnableTask(snapshot, snapshotNow);
+    const snapshotTask = this.getNextRunnableTask(snapshot, snapshotNow, true);
     if (!snapshotTask) return;
 
     this.tryQueueLock((queue) => {
       const now = Date.now();
       if (this.settleActiveSend(queue, now)) return;
       if (this.isNativeSendBusy(now)) return;
-      if (now < this.getQueueNextSendAllowedAt(queue)) return;
 
-      const task = this.getNextRunnableTask(queue, now);
+      const task = this.getNextRunnableTask(queue, now, true);
       if (!task) return;
 
       const result = task.kind === 'manual' ? this.runManualTask(queue, task) : this.runAutoTask(queue, task);
@@ -1358,6 +1445,32 @@ export class AutoSendController {
     return isCaptureValueValid(validationConfig, String(input.value || '').trim());
   }
 
+  enqueueManualTask(task: any, state: any, attempt = 0): void {
+    this.manualTasks.set(task.id, state);
+    const queued = this.tryQueueLock((queue) => {
+      if (queue.tasks.some((item: any) => item.id === task.id)) return;
+      task.sequence = this.getNextSequence(queue);
+      // Manual tasks go to the front of the queue for priority.
+      queue.tasks.unshift(task);
+    });
+
+    if (queued) {
+      this.processDueQueue();
+      return;
+    }
+
+    if (attempt < 8) {
+      const retryDelay = Math.min(LOCK_TTL_MS, 150 + attempt * 150);
+      window.setTimeout(() => {
+        if (this.manualTasks.has(task.id)) this.enqueueManualTask(task, state, attempt + 1);
+      }, retryDelay);
+      return;
+    }
+
+    this.manualTasks.delete(task.id);
+    this.options.notifySite('Auto-send queue is busy. Try again.', 'error');
+  }
+
   captureManualSend(event: Event): void {
     if (!(event.target instanceof Element)) return;
 
@@ -1384,6 +1497,7 @@ export class AutoSendController {
     const pageKey = this.getPageKey();
     const pageUrl = this.getPageUrl();
     const pageCode = this.getPageCode();
+    const receiverKey = this.getReceiverKey(pageKey, pageCode);
     const sendType = this.getSendType(config, 'manual');
     const taskKey = this.buildTaskKey(pageKey, commandKey, sendType);
     const now = Date.now();
@@ -1400,24 +1514,14 @@ export class AutoSendController {
       pageKey,
       pageUrl,
       pageCode,
+      receiverKey,
       createdAt: now,
-      dueAt: now, // Ready immediately (subject to global rate limit)
+      dueAt: now, // Ready immediately, subject only to this receiver's request interval.
       sequence: now,
       status: TASK_STATUS.PENDING,
     };
 
-    this.manualTasks.set(taskId, { button, snapshot });
-    const queued = this.tryQueueLock((queue) => {
-      task.sequence = this.getNextSequence(queue);
-      // Manual tasks go to the front of the queue for priority
-      queue.tasks.unshift(task);
-    });
-    if (!queued) {
-      this.manualTasks.delete(taskId);
-      this.options.notifySite('Auto-send queue is busy. Try again.', 'error');
-      return;
-    }
-    this.processDueQueue();
+    this.enqueueManualTask(task, { button, snapshot });
   }
 
   getOrCreateControlHost(sendButton: any): any {
@@ -1529,8 +1633,10 @@ export class AutoSendController {
     if (dueAt > now) return dueAt;
     if (!this.isTaskActiveForDisplay(queue, task, now)) return Number.MAX_SAFE_INTEGER;
 
-    const readyIndex = Math.max(0, readyTasks.findIndex((item: any) => item.id === task.id));
-    const firstAllowedAt = Math.max(now, this.getQueueNextSendAllowedAt(queue));
+    const receiverKey = this.getTaskReceiverKey(task);
+    const receiverReadyTasks = readyTasks.filter((item: any) => this.getTaskReceiverKey(item) === receiverKey);
+    const readyIndex = Math.max(0, receiverReadyTasks.findIndex((item: any) => item.id === task.id));
+    const firstAllowedAt = Math.max(now, this.getTaskNextSendAllowedAt(queue, task));
     return firstAllowedAt + readyIndex * this.getMinimumRequestIntervalMs();
   }
 
@@ -1548,7 +1654,7 @@ export class AutoSendController {
   /**
    * Calculate progress percentage for the cooldown bar.
    * - If task.dueAt > now: progress is based on the task interval.
-   * - If task.dueAt <= now but rate-limited: progress is based on the rate limit.
+   * - If task.dueAt <= now but receiver-limited: progress is based on the receiver rate limit.
    * - If both conditions pass: 100% (ready).
    */
   getCooldownPercent(task: any, queue = this.getStoredQueue(), readyTasks = this.getReadyDisplayTasks(queue)): number {
@@ -1557,7 +1663,7 @@ export class AutoSendController {
     const taskRemaining = Math.max(0, dueAt - now);
 
     if (taskRemaining > 0) {
-      const intervalMs = Math.max(1, clampAutoSendInterval(task.taskIntervalSeconds) * 1000);
+      const intervalMs = Math.max(1, this.getBufferedIntervalMs(task.taskIntervalSeconds));
       const elapsed = intervalMs - Math.min(intervalMs, taskRemaining);
       return Math.max(0, Math.min(100, (elapsed / intervalMs) * 100));
     }
@@ -1579,7 +1685,7 @@ export class AutoSendController {
   /**
    * Return human-readable remaining time text.
    * - "Xs" when waiting for the task's own interval.
-   * - "rate:Xs" when the task is ready but waiting for the global rate limit.
+   * - "rate:Xs" when the task is ready but waiting for the receiver rate limit.
    * - "ready" when both conditions are met.
    */
   getRemainingText(task: any, queue = this.getStoredQueue(), readyTasks = this.getReadyDisplayTasks(queue)): string {

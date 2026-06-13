@@ -8,7 +8,7 @@ export default defineConfig({
       userscript: {
         name: 'CtrlEm DB by Strateg',
         namespace: 'https://discord.com/channels/1465036592262676601/1505167683107160156',
-        version: '1.3.0',
+        version: '1.3.1',
         description: 'Adds DB shortcuts and a DB manager to CtrlEm command pages.',
         match: ['https://ctrlem.com/*'],
         grant: ['GM_addStyle', 'GM_getValue', 'GM_setValue', 'GM_xmlhttpRequest', 'GM_download', 'GM_openInTab'],

@@ -1,0 +1,121 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]:
+      - link "CtrlEm" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - link "Discord" [ref=e5] [cursor=pointer]:
+        - /url: https://discord.gg/ctrlem
+        - img [ref=e6]
+        - generic [ref=e8]: Discord
+      - link "Donate" [ref=e9] [cursor=pointer]:
+        - /url: https://throne.com/strawberryemmaz
+        - img [ref=e10]
+        - generic [ref=e12]: Donate
+    - generic [ref=e13]:
+      - link "Home" [ref=e14] [cursor=pointer]:
+        - /url: /
+      - link "Users" [ref=e15] [cursor=pointer]:
+        - /url: /users
+      - link "Groups" [ref=e16] [cursor=pointer]:
+        - /url: /groups
+      - link "Friends" [ref=e17] [cursor=pointer]:
+        - /url: /friends
+        - img [ref=e18]
+      - link "Messages" [ref=e23] [cursor=pointer]:
+        - /url: /chat
+        - img [ref=e24]
+      - link "Dashboard" [ref=e26] [cursor=pointer]:
+        - /url: /dashboard
+      - generic [ref=e27]:
+        - img "Avatar" [ref=e28]
+        - generic [ref=e29]: strateg94
+        - link "Logout" [ref=e30] [cursor=pointer]:
+          - /url: /auth/logout
+  - main [ref=e31]:
+    - generic [ref=e33]:
+      - generic [ref=e34]:
+        - img "Avatar" [ref=e35]
+        - generic [ref=e36]:
+          - heading "strateg94 ✓" [level=1] [ref=e37]:
+            - text: strateg94
+            - generic "Verified" [ref=e38]: ✓
+          - generic [ref=e39]: Online
+          - generic [ref=e40]:
+            - text: "Control Code:"
+            - code [ref=e41]: KPD0M
+          - generic [ref=e42]:
+            - generic [ref=e43]: 5,238
+            - generic [ref=e44]: commands sent
+      - generic [ref=e45]:
+        - button "Windows" [ref=e46] [cursor=pointer]:
+          - img [ref=e47]
+          - generic [ref=e49]: Windows
+        - button "Android" [ref=e51] [cursor=pointer]:
+          - img [ref=e52]
+          - generic [ref=e54]: Android
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - heading "Commands" [level=2] [ref=e59]
+            - paragraph [ref=e60]: Click a command to open options.
+          - generic [ref=e61]:
+            - button "Screenshot ▾" [ref=e63] [cursor=pointer]:
+              - generic [ref=e64]: Screenshot
+              - generic [ref=e65]: ▾
+            - button "Lock Input ▾" [ref=e67] [cursor=pointer]:
+              - generic [ref=e68]: Lock Input
+              - generic [ref=e69]: ▾
+            - button "Blank Screen ▾" [ref=e71] [cursor=pointer]:
+              - generic [ref=e72]: Blank Screen
+              - generic [ref=e73]: ▾
+            - button "Open Page ▾" [ref=e75] [cursor=pointer]:
+              - generic [ref=e76]: Open Page
+              - generic [ref=e77]: ▾
+            - button "Popup Image ▾" [ref=e79] [cursor=pointer]:
+              - generic [ref=e80]: Popup Image
+              - generic [ref=e81]: ▾
+            - button "Change Wallpaper ▾" [ref=e83] [cursor=pointer]:
+              - generic [ref=e84]: Change Wallpaper
+              - generic [ref=e85]: ▾
+            - button "Send Message ▾" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: Send Message
+              - generic [ref=e89]: ▾
+            - button "Popup Sound ▾" [ref=e91] [cursor=pointer]:
+              - generic [ref=e92]: Popup Sound
+              - generic [ref=e93]: ▾
+            - button "Send or Delete ▾" [ref=e95] [cursor=pointer]:
+              - generic [ref=e96]: Send or Delete
+              - generic [ref=e97]: ▾
+            - button "Video Overlay ▾" [ref=e99] [cursor=pointer]:
+              - generic [ref=e100]: Video Overlay
+              - generic [ref=e101]: ▾
+            - button "Write For Me ▾" [ref=e103] [cursor=pointer]:
+              - generic [ref=e104]: Write For Me
+              - generic [ref=e105]: ▾
+            - button "Session ▾" [ref=e107] [cursor=pointer]:
+              - generic [ref=e108]: Session
+              - generic [ref=e109]: ▾
+        - generic [ref=e110]:
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - heading "Results" [level=2] [ref=e113]
+              - paragraph [ref=e114]: Responses, screenshots, webcam captures, and status updates.
+            - generic [ref=e115]:
+              - button "Refresh" [ref=e116] [cursor=pointer]
+              - generic "Toggle auto-refresh" [ref=e117]:
+                - checkbox [checked]
+              - generic [ref=e119]: Auto
+          - paragraph [ref=e122]: Responses will appear here.
+  - contentinfo [ref=e124]:
+    - generic [ref=e125]:
+      - generic [ref=e126]:
+        - link "FAQ" [ref=e127] [cursor=pointer]:
+          - /url: /faq
+        - link "Terms" [ref=e128] [cursor=pointer]:
+          - /url: /terms
+        - link "Privacy" [ref=e129] [cursor=pointer]:
+          - /url: /privacy
+      - generic [ref=e131]:
+        - generic [ref=e132]: Donation Goal
+        - generic [ref=e133]: $300 / $150
+    - generic [ref=e136]: © 2026 CtrlEm
