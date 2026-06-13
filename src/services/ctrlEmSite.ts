@@ -5,6 +5,7 @@ import {
   uniqueMediaItems,
   uniqueStrings,
 } from '../domain/content';
+import { showCtrlEmDbToast } from '../ui/toast';
 
 export class CtrlEmSite {
   private uploadApiItemsPromise: Promise<any[]> | null = null;
@@ -95,10 +96,20 @@ export class CtrlEmSite {
   }
 
   notify(message: string, level = 'info'): void {
-    const showToast = (window as any).showToast;
+    const pageWindow = (globalThis as any).unsafeWindow || window;
+    const showToast = (window as any).showToast || pageWindow.showToast;
     if (typeof showToast === 'function') {
-      showToast(message, level);
+      try {
+        showToast.call(pageWindow, message, level);
+        return;
+      } catch (error: any) {
+        this.log('warn', 'Site toast failed; using CtrlEm DB toast', {
+          message: error?.message || String(error),
+        });
+      }
     }
+
+    showCtrlEmDbToast(message, level);
   }
 
   removeUploadFromSiteGalleries(uploadId: string): void {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         CtrlEm DB by Strateg
 // @namespace    https://discord.com/channels/1465036592262676601/1505167683107160156
-// @version      1.3.1
+// @version      1.4.0
 // @description  Adds DB shortcuts and a DB manager to CtrlEm command pages.
 // @license      MIT
 // @match        https://ctrlem.com/*
@@ -19,6 +19,7 @@
 // @grant        GM_openInTab
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -1277,6 +1278,16 @@
 	var INTERVAL_BUFFER_MS = 100;
 	var SEND_BUTTON_UNLOCK_MS = 500;
 	var MANUAL_SNAPSHOT_REUSE_MS = 5e3;
+	var QUEUE_NOTIFICATION_TTL_MS = 15e3;
+	var SEEN_NOTIFICATION_STORAGE_KEY = "ctrlemDbAutoSendSeenNotifications.v1";
+	var FINALIZE_RETRY_DELAYS_MS = [
+		100,
+		250,
+		500,
+		1e3,
+		1500,
+		2e3
+	];
 	var DIRECT_SIMPLE_COMMANDS = new Set([
 		"screenshot",
 		"webcamCapture",
@@ -1301,6 +1312,7 @@
 		states = new Map();
 		manualTasks = new Map();
 		recentManualSnapshots = new Map();
+		seenNotificationIds = new Set();
 		instanceId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		managerTimer = 0;
 		heartbeatTimer = 0;
@@ -1310,6 +1322,7 @@
 		managerCollapsed = false;
 		constructor(options) {
 			this.options = options;
+			this.restoreSeenNotificationIds();
 			window.addEventListener("storage", (event) => {
 				if (event.key !== "ctrlemDbAutoSendQueue.v1") return;
 				this.applyStoredQueue(this.parseStoredQueue(event.newValue));
@@ -1500,6 +1513,7 @@
 				activeSendsByReceiver: {},
 				rateLimitBackoffUntil: 0,
 				receiverCooldowns: {},
+				notifications: [],
 				lock: null,
 				heartbeats: {},
 				updatedAt: Date.now()
@@ -1556,6 +1570,24 @@
 				if (active.taskId) activeSends[key] = active;
 			});
 			return activeSends;
+		}
+		normalizeQueueNotification(notification) {
+			const source = notification && typeof notification === "object" ? notification : {};
+			return {
+				id: String(source.id || ""),
+				taskId: String(source.taskId || ""),
+				receiverKey: source.receiverKey ? this.normalizeReceiverKey(source.receiverKey) : "",
+				commandKey: String(source.commandKey || ""),
+				kind: String(source.kind || ""),
+				message: String(source.message || ""),
+				level: String(source.level || "info"),
+				createdAt: Math.max(0, Number(source.createdAt) || 0)
+			};
+		}
+		normalizeQueueNotifications(source) {
+			if (!Array.isArray(source)) return [];
+			const now = Date.now();
+			return source.map((item) => this.normalizeQueueNotification(item)).filter((item) => item.id && item.receiverKey && item.message && item.createdAt > 0 && now - item.createdAt <= QUEUE_NOTIFICATION_TTL_MS);
 		}
 		normalizeReceiverKey(receiverKey) {
 			const key = String(receiverKey || "").trim();
@@ -1644,6 +1676,7 @@
 			const legacyRateLimitBackoffUntil = Math.max(0, Number(source.rateLimitBackoffUntil) || 0);
 			const receiverCooldowns = this.normalizeReceiverCooldowns(source.receiverCooldowns);
 			const activeSendsByReceiver = this.normalizeActiveSendsByReceiver(source.activeSendsByReceiver);
+			const notifications = this.normalizeQueueNotifications(source.notifications);
 			const legacyCooldown = this.normalizeReceiverCooldown({
 				lastSentAt,
 				nextSendAllowedAt: legacyNextSendAllowedAt,
@@ -1677,6 +1710,7 @@
 				activeSendsByReceiver,
 				rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
 				receiverCooldowns,
+				notifications,
 				lock: source.lock && typeof source.lock === "object" ? source.lock : null,
 				heartbeats,
 				updatedAt: Math.max(0, Number(source.updatedAt) || 0)
@@ -1689,6 +1723,49 @@
 			queue.updatedAt = Date.now();
 			window.localStorage.setItem(AUTO_SEND_QUEUE_STORAGE_KEY, JSON.stringify(queue));
 			this.applyStoredQueue(queue);
+		}
+		restoreSeenNotificationIds() {
+			try {
+				const ids = JSON.parse(window.sessionStorage.getItem(SEEN_NOTIFICATION_STORAGE_KEY) || "[]");
+				if (Array.isArray(ids)) this.seenNotificationIds = new Set(ids.map((id) => String(id)));
+			} catch {
+				this.seenNotificationIds.clear();
+			}
+		}
+		rememberSeenNotificationId(id) {
+			this.seenNotificationIds.add(id);
+			const ids = Array.from(this.seenNotificationIds).slice(-100);
+			this.seenNotificationIds = new Set(ids);
+			try {
+				window.sessionStorage.setItem(SEEN_NOTIFICATION_STORAGE_KEY, JSON.stringify(ids));
+			} catch {}
+		}
+		pruneQueueNotifications(queue, now = Date.now()) {
+			const before = Array.isArray(queue.notifications) ? queue.notifications.length : 0;
+			queue.notifications = this.normalizeQueueNotifications(queue.notifications).filter((notification) => now - Number(notification.createdAt || 0) <= QUEUE_NOTIFICATION_TTL_MS);
+			return queue.notifications.length !== before;
+		}
+		addQueueNotification(queue, task, message, level = "info", now = Date.now()) {
+			queue.notifications = this.normalizeQueueNotifications(queue.notifications);
+			queue.notifications.push({
+				id: createId("notice"),
+				taskId: String(task?.id || ""),
+				receiverKey: this.getTaskReceiverKey(task),
+				commandKey: String(task?.commandKey || ""),
+				kind: String(task?.kind || ""),
+				message,
+				level,
+				createdAt: now
+			});
+		}
+		showQueueNotifications(queue) {
+			const receiverKey = this.getReceiverKey();
+			this.normalizeQueueNotifications(queue?.notifications).forEach((notification) => {
+				if (notification.receiverKey !== receiverKey) return;
+				if (this.seenNotificationIds.has(notification.id)) return;
+				this.rememberSeenNotificationId(notification.id);
+				this.options.notifySite(notification.message, notification.level);
+			});
 		}
 		cleanStaleTasks(queue, now = Date.now()) {
 			let changed = false;
@@ -1704,6 +1781,7 @@
 				if (task.kind !== "manual") return true;
 				return now - this.getHeartbeatTime(heartbeats[task.ownerId]) <= HEARTBEAT_TIMEOUT_MS;
 			});
+			if (this.pruneQueueNotifications(queue, now)) changed = true;
 			queue.activeSendsByReceiver ||= {};
 			Object.keys(queue.activeSendsByReceiver).forEach((receiverKey) => {
 				const active = this.normalizeActiveSend(queue.activeSendsByReceiver[receiverKey]);
@@ -2041,6 +2119,7 @@
 			return adopted;
 		}
 		applyStoredQueue(queue) {
+			this.showQueueNotifications(queue);
 			const taskIds = new Set((queue?.tasks || []).map((task) => task.id));
 			Array.from(this.states.values()).forEach((state) => {
 				if (taskIds.has(state.taskId)) return;
@@ -2194,6 +2273,7 @@
 				queue.tasks = queue.tasks.filter((item) => item.id !== task.id);
 				this.manualTasks.delete(task.id);
 			}
+			this.addQueueNotification(queue, task, "Command sent", "success", now);
 			this.clearActiveSend(queue, this.getTaskReceiverKey(task));
 		}
 		requeueRateLimitedTask(queue, task, backoffUntil) {
@@ -2332,9 +2412,26 @@
 			const active = this.getActiveSend(queue, attempt.receiverKey);
 			return Boolean(task && active?.taskId === attempt.taskId && task.status === TASK_STATUS.SENDING && task.attemptOwnerId === this.instanceId && Number(task.attemptedAt || 0) === Number(attempt.attemptedAt || 0));
 		}
-		confirmQueuedAttempt(attempt) {
+		scheduleAttemptFinalizationRetry(action, attempt, reason = "", retryAttempt = 0) {
+			const delay = FINALIZE_RETRY_DELAYS_MS[retryAttempt];
+			if (delay === void 0) {
+				this.options.log("warn", "Auto-send attempt finalization could not acquire queue lock", {
+					action,
+					command: attempt?.commandKey,
+					kind: attempt?.kind,
+					receiverKey: attempt?.receiverKey,
+					reason
+				});
+				return;
+			}
+			window.setTimeout(() => {
+				if (action === "confirm") this.confirmQueuedAttempt(attempt, retryAttempt + 1);
+				else this.requeueFailedAttempt(attempt, reason, retryAttempt + 1);
+			}, delay);
+		}
+		confirmQueuedAttempt(attempt, retryAttempt = 0) {
 			let completed = false;
-			this.tryQueueLock((queue) => {
+			if (!this.tryQueueLock((queue) => {
 				const task = queue.tasks.find((item) => item.id === attempt.taskId);
 				if (!this.isCurrentAttempt(queue, task, attempt)) return;
 				this.completeAttemptedTask(queue, task, Date.now());
@@ -2344,17 +2441,17 @@
 					kind: attempt.kind,
 					receiverKey: attempt.receiverKey
 				});
-			});
-			if (completed) {
-				this.options.notifySite("Command sent", "success");
-				this.processDueQueue();
+			})) {
+				this.scheduleAttemptFinalizationRetry("confirm", attempt, "", retryAttempt);
+				return;
 			}
+			if (completed) this.processDueQueue();
 		}
-		requeueFailedAttempt(attempt, reason) {
+		requeueFailedAttempt(attempt, reason, retryAttempt = 0) {
 			const now = Date.now();
 			const backoffUntil = now + this.getRateLimitBackoffMs();
 			let requeued = false;
-			this.tryQueueLock((queue) => {
+			if (!this.tryQueueLock((queue) => {
 				const task = queue.tasks.find((item) => item.id === attempt.taskId);
 				if (!this.isCurrentAttempt(queue, task, attempt)) return;
 				this.setReceiverRateLimitBackoff(queue, task, backoffUntil);
@@ -2367,7 +2464,10 @@
 					retryInMs: backoffUntil - now,
 					reason
 				});
-			});
+			})) {
+				this.scheduleAttemptFinalizationRetry("requeue", attempt, reason, retryAttempt);
+				return;
+			}
 			if (requeued) this.processDueQueue();
 		}
 		async sendQueuedTask(attempt) {
@@ -2943,6 +3043,33 @@
 		}
 		target.call(console, LOG_PREFIX, message, details);
 	}
+	var TOAST_CLASS_BY_LEVEL = {
+		success: "is-success",
+		error: "is-error",
+		warning: "is-warning",
+		warn: "is-warning"
+	};
+	function showCtrlEmDbToast(message, level = "info") {
+		const text = String(message || "").trim();
+		if (!text) return;
+		let container = document.querySelector(".ctrlem-db-toast-container");
+		if (!container) {
+			container = createElement("div", { className: "ctrlem-db-toast-container" });
+			document.body.appendChild(container);
+		}
+		const toast = createElement("div", {
+			className: `ctrlem-db-toast ${TOAST_CLASS_BY_LEVEL[level] || ""}`.trim(),
+			text
+		});
+		container.appendChild(toast);
+		window.setTimeout(() => {
+			toast.classList.add("is-leaving");
+			window.setTimeout(() => {
+				toast.remove();
+				if (!container.childElementCount) container.remove();
+			}, 250);
+		}, 3500);
+	}
 	var CtrlEmSite = class {
 		log;
 		uploadApiItemsPromise = null;
@@ -3010,8 +3137,15 @@
 			return items;
 		}
 		notify(message, level = "info") {
-			const showToast = window.showToast;
-			if (typeof showToast === "function") showToast(message, level);
+			const pageWindow = globalThis.unsafeWindow || window;
+			const showToast = window.showToast || pageWindow.showToast;
+			if (typeof showToast === "function") try {
+				showToast.call(pageWindow, message, level);
+				return;
+			} catch (error) {
+				this.log("warn", "Site toast failed; using CtrlEm DB toast", { message: error?.message || String(error) });
+			}
+			showCtrlEmDbToast(message, level);
 		}
 		removeUploadFromSiteGalleries(uploadId) {
 			if (!uploadId) return;

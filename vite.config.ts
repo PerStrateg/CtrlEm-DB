@@ -11,7 +11,7 @@ export default defineConfig({
         version: '1.4.0',
         description: 'Adds DB shortcuts and a DB manager to CtrlEm command pages.',
         match: ['https://ctrlem.com/*'],
-        grant: ['GM_addStyle', 'GM_getValue', 'GM_setValue', 'GM_xmlhttpRequest', 'GM_download', 'GM_openInTab'],
+        grant: ['GM_addStyle', 'GM_getValue', 'GM_setValue', 'GM_xmlhttpRequest', 'GM_download', 'GM_openInTab', 'unsafeWindow'],
         // "*" is still needed because user-saved media URLs can point at arbitrary hosts.
         connect: [
           'ctrlem.com',

@@ -26,6 +26,9 @@ const SEND_FEEDBACK_TIMEOUT_MS = 8000;
 const INTERVAL_BUFFER_MS = 100;
 const SEND_BUTTON_UNLOCK_MS = 500;
 const MANUAL_SNAPSHOT_REUSE_MS = 5000;
+const QUEUE_NOTIFICATION_TTL_MS = 15000;
+const SEEN_NOTIFICATION_STORAGE_KEY = 'ctrlemDbAutoSendSeenNotifications.v1';
+const FINALIZE_RETRY_DELAYS_MS = [100, 250, 500, 1000, 1500, 2000];
 const DIRECT_SIMPLE_COMMANDS = new Set([
   'screenshot',
   'webcamCapture',
@@ -54,6 +57,8 @@ export class AutoSendController {
 
   private recentManualSnapshots = new Map<string, any>();
 
+  private seenNotificationIds = new Set<string>();
+
   private readonly instanceId = `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   private managerTimer = 0;
@@ -69,6 +74,7 @@ export class AutoSendController {
   private managerCollapsed = false;
 
   constructor(private readonly options: any) {
+    this.restoreSeenNotificationIds();
     window.addEventListener('storage', (event: StorageEvent) => {
       if (event.key !== AUTO_SEND_QUEUE_STORAGE_KEY) return;
       this.applyStoredQueue(this.parseStoredQueue(event.newValue));
@@ -325,6 +331,7 @@ export class AutoSendController {
       activeSendsByReceiver: {},
       rateLimitBackoffUntil: 0,
       receiverCooldowns: {},
+      notifications: [],
       lock: null,
       heartbeats: {},
       updatedAt: Date.now(),
@@ -391,6 +398,34 @@ export class AutoSendController {
     });
 
     return activeSends;
+  }
+
+  normalizeQueueNotification(notification: any): any {
+    const source = notification && typeof notification === 'object' ? notification : {};
+    return {
+      id: String(source.id || ''),
+      taskId: String(source.taskId || ''),
+      receiverKey: source.receiverKey ? this.normalizeReceiverKey(source.receiverKey) : '',
+      commandKey: String(source.commandKey || ''),
+      kind: String(source.kind || ''),
+      message: String(source.message || ''),
+      level: String(source.level || 'info'),
+      createdAt: Math.max(0, Number(source.createdAt) || 0),
+    };
+  }
+
+  normalizeQueueNotifications(source: any): any[] {
+    if (!Array.isArray(source)) return [];
+    const now = Date.now();
+    return source
+      .map((item) => this.normalizeQueueNotification(item))
+      .filter((item) => (
+        item.id
+        && item.receiverKey
+        && item.message
+        && item.createdAt > 0
+        && now - item.createdAt <= QUEUE_NOTIFICATION_TTL_MS
+      ));
   }
 
   normalizeReceiverKey(receiverKey: string): string {
@@ -497,6 +532,7 @@ export class AutoSendController {
     const legacyRateLimitBackoffUntil = Math.max(0, Number(source.rateLimitBackoffUntil) || 0);
     const receiverCooldowns = this.normalizeReceiverCooldowns(source.receiverCooldowns);
     const activeSendsByReceiver = this.normalizeActiveSendsByReceiver(source.activeSendsByReceiver);
+    const notifications = this.normalizeQueueNotifications(source.notifications);
     const legacyCooldown = this.normalizeReceiverCooldown({
       lastSentAt,
       nextSendAllowedAt: legacyNextSendAllowedAt,
@@ -537,6 +573,7 @@ export class AutoSendController {
       activeSendsByReceiver,
       rateLimitBackoffUntil: legacyRateLimitBackoffUntil,
       receiverCooldowns,
+      notifications,
       lock: source.lock && typeof source.lock === 'object' ? source.lock : null,
       heartbeats,
       updatedAt: Math.max(0, Number(source.updatedAt) || 0),
@@ -551,6 +588,58 @@ export class AutoSendController {
     queue.updatedAt = Date.now();
     window.localStorage.setItem(AUTO_SEND_QUEUE_STORAGE_KEY, JSON.stringify(queue));
     this.applyStoredQueue(queue);
+  }
+
+  restoreSeenNotificationIds(): void {
+    try {
+      const ids = JSON.parse(window.sessionStorage.getItem(SEEN_NOTIFICATION_STORAGE_KEY) || '[]');
+      if (Array.isArray(ids)) this.seenNotificationIds = new Set(ids.map((id) => String(id)));
+    } catch {
+      this.seenNotificationIds.clear();
+    }
+  }
+
+  rememberSeenNotificationId(id: string): void {
+    this.seenNotificationIds.add(id);
+    const ids = Array.from(this.seenNotificationIds).slice(-100);
+    this.seenNotificationIds = new Set(ids);
+    try {
+      window.sessionStorage.setItem(SEEN_NOTIFICATION_STORAGE_KEY, JSON.stringify(ids));
+    } catch {
+      // Session storage can be unavailable in hardened contexts; in-memory de-dupe still works.
+    }
+  }
+
+  pruneQueueNotifications(queue: any, now = Date.now()): boolean {
+    const before = Array.isArray(queue.notifications) ? queue.notifications.length : 0;
+    queue.notifications = this.normalizeQueueNotifications(queue.notifications)
+      .filter((notification: any) => now - Number(notification.createdAt || 0) <= QUEUE_NOTIFICATION_TTL_MS);
+    return queue.notifications.length !== before;
+  }
+
+  addQueueNotification(queue: any, task: any, message: string, level = 'info', now = Date.now()): void {
+    queue.notifications = this.normalizeQueueNotifications(queue.notifications);
+    queue.notifications.push({
+      id: createId('notice'),
+      taskId: String(task?.id || ''),
+      receiverKey: this.getTaskReceiverKey(task),
+      commandKey: String(task?.commandKey || ''),
+      kind: String(task?.kind || ''),
+      message,
+      level,
+      createdAt: now,
+    });
+  }
+
+  showQueueNotifications(queue: any): void {
+    const receiverKey = this.getReceiverKey();
+    this.normalizeQueueNotifications(queue?.notifications).forEach((notification: any) => {
+      if (notification.receiverKey !== receiverKey) return;
+      if (this.seenNotificationIds.has(notification.id)) return;
+
+      this.rememberSeenNotificationId(notification.id);
+      this.options.notifySite(notification.message, notification.level);
+    });
   }
 
   /**
@@ -576,6 +665,7 @@ export class AutoSendController {
       // Manual tasks are kept only while their owner tab is alive
       return now - this.getHeartbeatTime(heartbeats[task.ownerId]) <= HEARTBEAT_TIMEOUT_MS;
     });
+    if (this.pruneQueueNotifications(queue, now)) changed = true;
 
     queue.activeSendsByReceiver ||= {};
     Object.keys(queue.activeSendsByReceiver).forEach((receiverKey) => {
@@ -1014,6 +1104,7 @@ export class AutoSendController {
   }
 
   applyStoredQueue(queue: any): void {
+    this.showQueueNotifications(queue);
     const taskIds = new Set((queue?.tasks || []).map((task: any) => task.id));
     Array.from(this.states.values()).forEach((state: any) => {
       if (taskIds.has(state.taskId)) return;
@@ -1191,6 +1282,7 @@ export class AutoSendController {
       this.manualTasks.delete(task.id);
     }
 
+    this.addQueueNotification(queue, task, 'Command sent', 'success', now);
     this.clearActiveSend(queue, this.getTaskReceiverKey(task));
   }
 
@@ -1387,10 +1479,32 @@ export class AutoSendController {
     );
   }
 
-  confirmQueuedAttempt(attempt: any): void {
+  scheduleAttemptFinalizationRetry(action: 'confirm' | 'requeue', attempt: any, reason = '', retryAttempt = 0): void {
+    const delay = FINALIZE_RETRY_DELAYS_MS[retryAttempt];
+    if (delay === undefined) {
+      this.options.log('warn', 'Auto-send attempt finalization could not acquire queue lock', {
+        action,
+        command: attempt?.commandKey,
+        kind: attempt?.kind,
+        receiverKey: attempt?.receiverKey,
+        reason,
+      });
+      return;
+    }
+
+    window.setTimeout(() => {
+      if (action === 'confirm') {
+        this.confirmQueuedAttempt(attempt, retryAttempt + 1);
+      } else {
+        this.requeueFailedAttempt(attempt, reason, retryAttempt + 1);
+      }
+    }, delay);
+  }
+
+  confirmQueuedAttempt(attempt: any, retryAttempt = 0): void {
     let completed = false;
 
-    this.tryQueueLock((queue) => {
+    const locked = this.tryQueueLock((queue) => {
       const task = queue.tasks.find((item: any) => item.id === attempt.taskId);
       if (!this.isCurrentAttempt(queue, task, attempt)) return;
 
@@ -1403,18 +1517,22 @@ export class AutoSendController {
       });
     });
 
+    if (!locked) {
+      this.scheduleAttemptFinalizationRetry('confirm', attempt, '', retryAttempt);
+      return;
+    }
+
     if (completed) {
-      this.options.notifySite('Command sent', 'success');
       this.processDueQueue();
     }
   }
 
-  requeueFailedAttempt(attempt: any, reason: string): void {
+  requeueFailedAttempt(attempt: any, reason: string, retryAttempt = 0): void {
     const now = Date.now();
     const backoffUntil = now + this.getRateLimitBackoffMs();
     let requeued = false;
 
-    this.tryQueueLock((queue) => {
+    const locked = this.tryQueueLock((queue) => {
       const task = queue.tasks.find((item: any) => item.id === attempt.taskId);
       if (!this.isCurrentAttempt(queue, task, attempt)) return;
 
@@ -1429,6 +1547,11 @@ export class AutoSendController {
         reason,
       });
     });
+
+    if (!locked) {
+      this.scheduleAttemptFinalizationRetry('requeue', attempt, reason, retryAttempt);
+      return;
+    }
 
     if (requeued) this.processDueQueue();
   }
